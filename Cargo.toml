@@ -1,7 +1,7 @@
-# rustio-draft — standalone workspace (its own Cargo.lock).
-# It is NOT a member of the framework workspace: this is the one place in the
-# ecosystem that calls an LLM, so its network/LLM dependencies must never reach
-# the runtime crate. See ../docs/RUSTIO_DRAFT_SCOPE.md.
+# rustio-draft — its own repo (separate from the rustio-admin framework).
+# This is the one place in the ecosystem that calls an LLM, so its network/LLM
+# dependencies stay out of the runtime crate entirely. Design + boundary:
+# https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md
 [workspace]
 
 [package]

@@ -1,14 +1,15 @@
 # rustio-draft
 
-Setup-time **genesis** for [rustio-admin](../README.md): turn a natural-language
-brief into a `schema.json`, which `rustio-admin import` then applies
-deterministically.
+Setup-time **genesis** for [rustio-admin](https://github.com/abdulwahed-sweden/rustio-admin):
+turn a natural-language brief into a `schema.json`, which `rustio-admin import`
+then applies deterministically.
 
 > **rustio-draft is the only part of the ecosystem that calls an LLM.** It is a
-> standalone workspace, excluded from the framework, so the runtime library and
-> CLI never gain a network or LLM dependency. RustIO itself runs no AI — rustio-draft
-> *authors* a schema; `rustio-admin` *applies* it. Full design:
-> [`../docs/RUSTIO_DRAFT_SCOPE.md`](../docs/RUSTIO_DRAFT_SCOPE.md).
+> separate repo (not in the framework), so the runtime library and CLI never gain
+> a network or LLM dependency. RustIO itself runs no AI — rustio-draft *authors* a
+> schema; `rustio-admin` *applies* it. Full design:
+> [`docs/RUSTIO_DRAFT_SCOPE.md`](https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md)
+> (in the rustio-admin repo).
 
 ## Usage
 

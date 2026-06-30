@@ -2,10 +2,11 @@
 //!
 //! Turns a natural-language brief into a `schema.json` (via the Claude API),
 //! which `rustio-admin import` then applies deterministically. This crate is the
-//! *only* place in the ecosystem that calls an LLM, and it lives outside the
-//! framework workspace so the runtime never gains a network/LLM dependency.
+//! *only* place in the ecosystem that calls an LLM, and it lives in its own repo
+//! (separate from the framework) so the runtime never gains a network/LLM dep.
 //!
-//! See `../docs/RUSTIO_DRAFT_SCOPE.md` for the full design and boundary.
+//! Full design and boundary:
+//! <https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md>.
 
 pub mod client;
 pub mod schema;
