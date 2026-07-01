@@ -46,49 +46,92 @@
   .status ul { margin:6px 0 0; padding-left:18px; }
   .spacer { flex:1; }
   .hint { color:var(--muted); font-size:12px; margin-top:4px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .chip { font-size:11px; font-weight:600; color:var(--accent-d); background:#f4ece1;
+          border:1px solid var(--line); border-radius:999px; padding:2px 9px; }
+  .steps { display:flex; flex-wrap:wrap; align-items:center; gap:6px; color:var(--muted);
+           font-size:12px; margin:2px 0 0; }
+  .steps b { color:var(--ink); font-weight:600; }
+  .steps .arrow { color:var(--line); }
+  .code { background:#1c1a16; color:#e9e4d8; border-radius:8px; padding:10px 12px; margin-top:8px;
+          font:12px/1.6 ui-monospace,Menlo,monospace; white-space:pre; overflow:auto; }
+  .box { border-radius:8px; padding:12px; margin-top:8px; font-size:13px; }
+  .box.ok { background:#eef6f0; border:1px solid #cfe6d7; color:#1f5c3b; }
+  .box.warn { background:#fbf0ee; border:1px solid #ecccc6; color:#8a2c22; }
+  .box h4 { margin:0 0 6px; font-size:13px; }
+  .box .code { margin-top:8px; }
+  input.invalid { border-color:var(--err); background:#fdf3f1; }
+  .typehint { color:var(--muted); font-size:12px; margin:0 0 10px; }
+  .typehint code { background:#f0ebe1; border-radius:4px; padding:1px 5px; }
 </style>
 </head>
 <body>
 <header>
   <h1>rustio-draft studio</h1>
-  <p>Describe an app → review &amp; edit the schema → download or save <code>schema.json</code>, then <code>rustio-admin import</code>. The API key stays on the server.</p>
+  <p>Describe your app in plain language → review &amp; edit the schema → save
+  <code>schema.json</code>. rustio-draft <b>drafts and validates</b>; you apply it
+  yourself with <code>rustio-admin</code>. It never imports or commits, and your
+  API key stays on this local server — the browser only ever sees schema JSON.</p>
+  <div class="chips">
+    <span class="chip">Setup-time AI only</span>
+    <span class="chip">Runs on localhost</span>
+    <span class="chip">Writes schema.json</span>
+    <span class="chip">Never imports / commits</span>
+    <span class="chip">API key stays server-side</span>
+  </div>
+  <p class="steps" style="margin-top:10px">
+    <b>brief</b> <span class="arrow">→</span> <b>generate</b>
+    <span class="arrow">→</span> <b>review &amp; edit</b>
+    <span class="arrow">→</span> <b>validate on save</b>
+    <span class="arrow">→</span> <b>rustio-admin import → plan → commit</b>
+  </p>
 </header>
 <main>
   <section class="panel">
-    <label for="brief">Brief</label>
-    <textarea id="brief" placeholder="a booking system for a salon: clients, staff, appointments"></textarea>
+    <label for="brief">Describe your app</label>
+    <textarea id="brief" placeholder="e.g. a booking system for a salon: clients, staff, appointments"></textarea>
+    <div class="hint">List the things your app tracks. rustio-draft turns them into models and fields.</div>
     <div class="row" style="margin-top:10px">
       <input type="text" id="model" placeholder="model (optional, e.g. claude-opus-4-8)" style="max-width:320px">
-      <button class="primary" id="gen">Generate</button>
+      <button class="primary" id="gen">Generate schema</button>
+      <button id="tryExample" title="Fill the brief with an example">Try “Noor School”</button>
       <span class="spacer"></span>
       <span class="status" id="genStatus"></span>
     </div>
   </section>
 
   <section class="panel" id="editor" hidden>
-    <div class="actions" style="margin-bottom:12px">
+    <div class="actions" style="margin-bottom:8px">
       <strong>Schema</strong>
       <span class="meta" id="counts"></span>
       <span class="spacer"></span>
       <button id="addModel">+ model</button>
     </div>
+    <p class="typehint">Field types: <code>text</code> · <code>integer</code> ·
+      <code>boolean</code> · <code>timestamp</code>. <code>id</code> and
+      <code>created_at</code> are added automatically — don't add them.</p>
     <div class="models" id="models"></div>
 
     <div class="row" style="margin-top:14px">
-      <input type="text" id="instruction" placeholder="refine: e.g. add a published boolean to Post">
-      <button id="refine">Refine</button>
+      <input type="text" id="instruction" placeholder="refine with AI: e.g. add a published boolean to Post">
+      <button id="refine">Refine with AI</button>
     </div>
-    <div class="hint">Refine sends your <em>current edited</em> schema plus the instruction.</div>
+    <div class="hint">Sends your <em>current edited</em> schema plus the instruction.
+      The AI's output is re-validated and existing models are preserved before it comes back.</div>
   </section>
 
   <section class="panel" id="outPanel" hidden>
     <div class="actions" style="margin-bottom:10px">
-      <button class="primary" id="save">Save to server file</button>
-      <button id="download">Download schema.json</button>
+      <button class="primary" id="save">Save schema.json</button>
+      <button id="download">Download</button>
       <button id="copy">Copy JSON</button>
       <span class="spacer"></span>
       <span class="status" id="saveStatus"></span>
     </div>
+    <div class="hint" style="margin:-2px 0 10px">Saving validates the schema the same
+      way <code>rustio-admin import</code> will, and blocks changes that would drop
+      or weaken your saved schema.</div>
+    <div id="saveResult"></div>
     <pre id="preview"></pre>
   </section>
 </main>
@@ -128,7 +171,20 @@ function render() {
   schema.models.forEach((m, mi) => host.appendChild(modelCard(m, mi)));
   $("editor").hidden = false;
   $("outPanel").hidden = false;
+  // Any earlier save result no longer reflects the edited schema.
+  $("saveResult").innerHTML = "";
   refreshPreview();
+}
+
+// Flag an empty name inline so it's easy to spot before saving. (The server
+// remains the authority on what's valid; this is just a hint.)
+function markEmpty(input, value) {
+  input.classList.toggle("invalid", !value || !value.trim());
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 function modelCard(m, mi) {
@@ -139,7 +195,8 @@ function modelCard(m, mi) {
   head.className = "model__head";
   const name = document.createElement("input");
   name.type = "text"; name.value = m.name || ""; name.placeholder = "ModelName";
-  name.oninput = () => { m.name = name.value; refreshPreview(); };
+  markEmpty(name, m.name);
+  name.oninput = () => { m.name = name.value; markEmpty(name, name.value); refreshPreview(); };
   const del = document.createElement("button");
   del.className = "icon"; del.textContent = "✕ model"; del.title = "Remove model";
   del.onclick = () => { schema.models.splice(mi, 1); render(); };
@@ -165,7 +222,8 @@ function fieldRow(m, f, fi) {
   const tdName = document.createElement("td"); tdName.className = "name";
   const name = document.createElement("input");
   name.type = "text"; name.value = f.name || ""; name.placeholder = "field_name";
-  name.oninput = () => { f.name = name.value; refreshPreview(); };
+  markEmpty(name, f.name);
+  name.oninput = () => { f.name = name.value; markEmpty(name, name.value); refreshPreview(); };
   tdName.appendChild(name);
 
   const tdType = document.createElement("td"); tdType.className = "type";
@@ -192,54 +250,100 @@ function fieldRow(m, f, fi) {
   return tr;
 }
 
+const NOOR_EXAMPLE =
+  "Noor School: a school management system with students, parents, teachers, " +
+  "classes, subjects, attendance, exams, invoices, and announcements";
+
+$("tryExample").onclick = () => {
+  $("brief").value = NOOR_EXAMPLE;
+  $("brief").focus();
+  setStatus($("genStatus"), "", "");
+};
+
 $("gen").onclick = async () => {
   const brief = $("brief").value.trim();
   if (!brief) { setStatus($("genStatus"), "enter a brief first", "err"); return; }
-  $("gen").disabled = true; setStatus($("genStatus"), "designing…");
+  $("gen").disabled = true; setStatus($("genStatus"), "designing your schema…");
   try {
     const model = $("model").value.trim() || undefined;
     const data = await postJSON("/api/generate", { brief, model });
     schema = data.schema; render();
-    setStatus($("genStatus"), "done", "ok");
+    setStatus($("genStatus"), "schema ready ✓ — review and edit below", "ok");
   } catch (e) { setStatus($("genStatus"), e.message, "err"); }
   finally { $("gen").disabled = false; }
 };
 
 $("refine").onclick = async () => {
   const instruction = $("instruction").value.trim();
-  if (!instruction) { setStatus($("saveStatus"), "enter an instruction", "err"); return; }
-  $("refine").disabled = true; setStatus($("genStatus"), "refining…");
+  if (!instruction) { setStatus($("genStatus"), "enter a refine instruction first", "err"); return; }
+  $("refine").disabled = true; setStatus($("genStatus"), "refining with AI…");
   try {
     const model = $("model").value.trim() || undefined;
     const data = await postJSON("/api/refine", { schema, instruction, model });
     schema = data.schema; $("instruction").value = ""; render();
-    setStatus($("genStatus"), "refined", "ok");
+    setStatus($("genStatus"), "refined ✓", "ok");
   } catch (e) { setStatus($("genStatus"), e.message, "err"); }
   finally { $("refine").disabled = false; }
 };
 
 $("addModel").onclick = () => { schema.models.push({ name: "", fields: [] }); render(); };
 
+function nextCommands(path) {
+  return "rustio-admin import " + path + "\nrustio-admin plan\nrustio-admin commit";
+}
+
 async function doSave(allowDestructive) {
+  const result = $("saveResult");
+  result.innerHTML = "";
   setStatus($("saveStatus"), "saving…");
   try {
     const data = await postJSON("/api/save", { schema, allow_destructive: !!allowDestructive });
-    setStatus($("saveStatus"), "saved → " + data.path, "ok");
+    setStatus($("saveStatus"), "", "");
+    const cmds = nextCommands(data.path);
+    const box = document.createElement("div");
+    box.className = "box ok";
+    box.innerHTML =
+      "<h4>✓ Saved → " + escapeHtml(data.path) + "</h4>" +
+      "<div>Next, apply it deterministically with rustio-admin (rustio-draft never does this for you):</div>" +
+      "<div class='code'>" + escapeHtml(cmds) + "</div>";
+    const copyBtn = document.createElement("button");
+    copyBtn.textContent = "Copy commands"; copyBtn.style.marginTop = "8px";
+    copyBtn.onclick = async () => {
+      try { await navigator.clipboard.writeText(cmds); copyBtn.textContent = "Copied ✓"; }
+      catch (_) { copyBtn.textContent = "copy failed"; }
+    };
+    box.appendChild(copyBtn);
+    result.appendChild(box);
   } catch (e) {
-    setStatus($("saveStatus"), e.message, "err");
-    if (e.problems && e.problems.length) {
-      const ul = document.createElement("ul");
-      e.problems.forEach((p) => { const li = document.createElement("li"); li.textContent = p; ul.appendChild(li); });
-      $("saveStatus").appendChild(ul);
-    }
-    // 409 = destructive changes refused. Offer an explicit override.
+    setStatus($("saveStatus"), "", "");
+    const box = document.createElement("div");
+    box.className = "box warn";
     if (e.status === 409) {
+      box.innerHTML =
+        "<h4>⚠ This save would remove or weaken your saved schema</h4>" +
+        "<div>Blocked by default so you don't lose data by accident:</div>";
+      appendProblems(box, e.problems);
+      const note = document.createElement("div"); note.style.marginTop = "8px";
+      note.textContent =
+        "If you meant to make these changes, use “Save anyway”. Otherwise, edit the schema above first.";
+      box.appendChild(note);
       const btn = document.createElement("button");
-      btn.className = "primary"; btn.style.marginTop = "8px"; btn.textContent = "Save anyway";
+      btn.textContent = "Save anyway"; btn.style.marginTop = "8px";
       btn.onclick = () => doSave(true);
-      $("saveStatus").appendChild(btn);
+      box.appendChild(btn);
+    } else {
+      box.innerHTML = "<h4>Could not save</h4><div>" + escapeHtml(e.message) + "</div>";
+      appendProblems(box, e.problems);
     }
+    result.appendChild(box);
   }
+}
+
+function appendProblems(box, problems) {
+  if (!problems || !problems.length) return;
+  const ul = document.createElement("ul"); ul.style.margin = "8px 0 0";
+  problems.forEach((p) => { const li = document.createElement("li"); li.textContent = p; ul.appendChild(li); });
+  box.appendChild(ul);
 }
 
 $("save").onclick = () => doSave(false);
