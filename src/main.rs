@@ -65,6 +65,12 @@ enum Command {
         #[command(flatten)]
         gen: GenOpts,
     },
+    /// Check that ANTHROPIC_API_KEY is set and works (no tokens are spent).
+    Doctor {
+        /// Also confirm this model is available to your key.
+        #[arg(long, default_value = DEFAULT_MODEL)]
+        model: String,
+    },
 }
 
 /// Model knobs shared by `new` and `refine`.
@@ -121,7 +127,26 @@ async fn run() -> Result<()> {
         Command::Serve { port, out, gen } => {
             rustio_draft::server::run(api_key()?, gen.model, gen.max_tokens, out, port).await
         }
+        Command::Doctor { model } => doctor(model).await,
     }
+}
+
+/// Verify the API key works (lists models — spends no tokens) and, optionally,
+/// that a specific model is available.
+async fn doctor(model: String) -> Result<()> {
+    let client = DraftClient::new(api_key()?, model.clone(), 1);
+    eprintln!("Checking ANTHROPIC_API_KEY…");
+    let models = client.list_models().await?;
+    println!("✓ API key works — {} model(s) available.", models.len());
+    if models.contains(&model) {
+        println!("✓ model '{model}' is available.");
+    } else {
+        println!("! model '{model}' is not in your available list.");
+        if !models.is_empty() {
+            println!("  available: {}", models.join(", "));
+        }
+    }
+    Ok(())
 }
 
 async fn new(

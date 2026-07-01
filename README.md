@@ -18,12 +18,17 @@ then applies deterministically.
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-...
 
+cargo run -- doctor   # optional: confirm the key works (spends no tokens)
+
 cargo run -- new "a booking system for a salon: clients, staff, appointments"
 # → writes ./schema.json, then prints:
 #     rustio-admin import schema.json
 #     rustio-admin plan
 #     rustio-admin commit
 ```
+
+`doctor` lists your available models via `GET /v1/models` — it validates the key
+(with friendly 401/403 messages) without generating anything.
 
 Flags: `--out <path>` (default `schema.json`), `--model <id>` (default
 `claude-opus-4-8`), `--max-tokens <n>` (default 8000), `--force` (overwrite),

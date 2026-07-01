@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use crate::schema::{self, SchemaDoc};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
+const MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const API_VERSION: &str = "2023-06-01";
 
 /// Default model. Overridable on the CLI; this is the reference default.
@@ -114,6 +115,55 @@ impl DraftClient {
 
         parse_schema_response(&v)
     }
+
+    /// Verify the API key by listing available models (`GET /v1/models`).
+    /// Returns the available model IDs on success. Cheap: no tokens are
+    /// generated, so this is safe to run as a health check. Maps common auth
+    /// failures to friendly messages.
+    pub async fn list_models(&self) -> Result<Vec<String>> {
+        let resp = self
+            .http
+            .get(MODELS_URL)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", API_VERSION)
+            .send()
+            .await
+            .context("could not reach the Claude API")?;
+
+        let status = resp.status();
+        let v: Value = resp
+            .json()
+            .await
+            .context("Claude API returned a non-JSON response")?;
+
+        if !status.is_success() {
+            let msg = v
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown error");
+            match status.as_u16() {
+                401 => bail!("API key is invalid or revoked (401): {msg}"),
+                403 => bail!("API key lacks permission (403): {msg}"),
+                _ => bail!("Claude API error ({status}): {msg}"),
+            }
+        }
+
+        Ok(parse_model_ids(&v))
+    }
+}
+
+/// Extract model IDs from a `GET /v1/models` response. Pulled out of the network
+/// path so it can be unit-tested.
+fn parse_model_ids(v: &Value) -> Vec<String> {
+    v.get("data")
+        .and_then(|d| d.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Extract and parse the schema from a successful Messages API response.
@@ -174,5 +224,22 @@ mod tests {
         let v = json!({ "stop_reason": "max_tokens", "content": [] });
         let err = parse_schema_response(&v).unwrap_err().to_string();
         assert!(err.contains("max-tokens"), "{err}");
+    }
+
+    #[test]
+    fn parses_model_ids_in_order() {
+        let v = json!({ "data": [
+            { "id": "claude-opus-4-8", "type": "model" },
+            { "id": "claude-sonnet-4-6", "type": "model" }
+        ] });
+        assert_eq!(
+            parse_model_ids(&v),
+            vec!["claude-opus-4-8", "claude-sonnet-4-6"]
+        );
+    }
+
+    #[test]
+    fn missing_data_yields_empty() {
+        assert!(parse_model_ids(&json!({})).is_empty());
     }
 }
