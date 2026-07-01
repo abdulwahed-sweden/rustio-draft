@@ -182,11 +182,54 @@ async fn refine(
 
     let client = DraftClient::new(api_key()?, gen.model.clone(), gen.max_tokens);
     eprintln!("Refining {} with {}…", path.display(), gen.model);
-    let doc = client.refine(&current, &instruction).await?;
+
+    // The model occasionally returns an invalid schema (e.g. an empty `models`
+    // list). Try once more before giving up — and if it still fails, say clearly
+    // that the file was left untouched (finalize never writes an invalid schema).
+    let doc = match refine_once_valid(&client, &current, &instruction).await {
+        Ok(doc) => doc,
+        Err(e) => bail!(
+            "{e}\n{} was left unchanged — try again or rephrase.",
+            path.display()
+        ),
+    };
 
     // Default to editing in place.
     let out = out.unwrap_or(path);
     finalize(&doc, &out, &apply)
+}
+
+/// Ask the model to refine the schema, retrying once if the result would not
+/// pass validation. Returns a schema that is already valid.
+async fn refine_once_valid(
+    client: &DraftClient,
+    current: &SchemaDoc,
+    instruction: &str,
+) -> Result<SchemaDoc> {
+    const ATTEMPTS: usize = 2;
+    for attempt in 1..=ATTEMPTS {
+        let doc = client.refine(current, instruction).await?;
+        match schema::validate(&doc) {
+            Ok(()) => return Ok(doc),
+            Err(problems) if attempt < ATTEMPTS => {
+                eprintln!(
+                    "The model returned an invalid schema (attempt {attempt}/{ATTEMPTS}) — retrying…"
+                );
+                for p in &problems {
+                    eprintln!("  - {p}");
+                }
+            }
+            Err(problems) => {
+                let mut msg =
+                    format!("the model returned an invalid schema after {ATTEMPTS} attempts:");
+                for p in &problems {
+                    msg.push_str(&format!("\n  - {p}"));
+                }
+                bail!(msg);
+            }
+        }
+    }
+    unreachable!("loop returns or bails on the final attempt")
 }
 
 /// Validate the proposed schema, write it, and either run the deterministic

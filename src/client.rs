@@ -67,8 +67,10 @@ impl DraftClient {
             .context("could not serialize the current schema")?;
         let user = format!(
             "Here is the current schema:\n\n```json\n{current_json}\n```\n\n\
-             Apply this change and return the COMPLETE updated schema \
-             (keep everything not mentioned unchanged):\n{instruction}"
+             Apply this change: {instruction}\n\n\
+             Return the COMPLETE updated schema. Every model and field already \
+             present MUST still be there, plus the change. Do NOT drop any model \
+             or field, and never return an empty `models` list."
         );
         self.complete(user).await
     }
