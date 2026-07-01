@@ -1,140 +1,340 @@
 # rustio-draft
 
 [![CI](https://github.com/abdulwahed-sweden/rustio-draft/actions/workflows/ci.yml/badge.svg)](https://github.com/abdulwahed-sweden/rustio-draft/actions/workflows/ci.yml)
+![Rust](https://img.shields.io/badge/Rust-CLI-orange?logo=rust)
+![Schema](https://img.shields.io/badge/output-schema.json-blue)
+![AI](https://img.shields.io/badge/AI-setup--time%20only-purple)
+![Safety](https://img.shields.io/badge/safety-diff%20protected-green)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-Setup-time **genesis** for [rustio-admin](https://github.com/abdulwahed-sweden/rustio-admin):
-turn a natural-language brief into a `schema.json`, which `rustio-admin import`
-then applies deterministically.
+**rustio-draft turns a natural-language project brief into a safe `schema.json`
+for [rustio-admin](https://github.com/abdulwahed-sweden/rustio-admin).**
 
-> **rustio-draft is the only part of the ecosystem that calls an LLM.** It is a
-> separate repo (not in the framework), so the runtime library and CLI never gain
-> a network or LLM dependency. RustIO itself runs no AI — rustio-draft *authors* a
-> schema; `rustio-admin` *applies* it. Full design:
-> [`docs/RUSTIO_DRAFT_SCOPE.md`](https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md)
-> (in the rustio-admin repo).
+It is a setup-time tool only: it may call Claude to draft the schema, but RustIO
+Admin applies the result deterministically through `import`, `plan`, and
+`commit`. RustIO itself does not depend on AI at runtime.
 
-## Setup
+> **AI drafts. RustIO validates. Diff protects. Human approves.**
 
-Provide your Anthropic API key once:
+---
 
-```sh
-cp .env.example .env      # then open .env and paste your key
+## What it does
+
+- Turns a natural-language project brief into `schema.json`.
+- Lets you **refine** an existing schema safely.
+- Provides a localhost **Studio** for visual editing.
+- Validates and protects the schema before writing.
+- Can run the RustIO Admin `import` + `plan` chain with `--apply`.
+
+## What it does not do
+
+- It is **not** an AI runtime.
+- It is **not** an ORM.
+- It is **not** a migration engine.
+- It does **not** directly change production databases.
+- It does **not** commit RustIO Admin plans automatically.
+- It does **not** make RustIO Admin depend on Claude or any LLM.
+
+## Why it exists
+
+You can already ask any AI tool to write a schema — but raw AI output is unsafe.
+It may:
+
+- produce invalid JSON,
+- drop fields,
+- remove whole models,
+- change field types silently,
+- return something that *looks* valid but is semantically destructive.
+
+rustio-draft treats the model's output as **untrusted** and runs it through a
+pipeline before anything is written:
+
+```
+generate → validate → retry → diff → protect → human review
 ```
 
-That's it. Notes:
+Full design and boundary:
+[`docs/RUSTIO_DRAFT_SCOPE.md`](https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md)
+(in the rustio-admin repo).
 
+---
+
+## Quick start
+
+```sh
+cp .env.example .env
+# paste your ANTHROPIC_API_KEY into .env
+
+cargo run -- doctor
+cargo run -- new "a booking system for a salon: clients, staff, appointments"
+```
+
+`new` writes `./schema.json`. Then hand it to RustIO Admin:
+
+```sh
+rustio-admin import schema.json
+rustio-admin plan      # preview (read-only)
+rustio-admin commit    # apply atomically
+```
+
+Notes on the API key:
+
+- `doctor` checks the key via `GET /v1/models` and **spends no tokens**.
 - `.env` is **gitignored** — your key is never committed.
-- The key is read **locally** and sent **only** to Anthropic's API — nowhere else.
-- No `.env`? An exported `ANTHROPIC_API_KEY` works too (and takes precedence).
+- An exported `ANTHROPIC_API_KEY` also works and **takes precedence** over `.env`.
 - Only the commands that call Claude (`new`, `refine`, `serve`, `doctor`) need a
   key; `--help` and `--version` work without one.
 
-Check it works (spends no tokens):
+## Example output
 
-```sh
-cargo run -- doctor
+`new` produces a small, normalised `schema.json`:
+
+```json
+{
+  "project": "salon",
+  "models": [
+    {
+      "name": "Client",
+      "fields": [
+        { "name": "full_name", "type": "text" },
+        { "name": "email", "type": "text", "unique": true }
+      ]
+    },
+    {
+      "name": "Appointment",
+      "fields": [
+        { "name": "client_id", "type": "integer" },
+        { "name": "starts_at", "type": "timestamp" },
+        { "name": "status", "type": "text" }
+      ]
+    }
+  ]
+}
 ```
 
-## Usage
+`id` and `created_at` are **not** listed — RustIO Admin adds those implicitly.
+
+---
+
+## Commands
+
+### Generate
 
 ```sh
-export ANTHROPIC_API_KEY=sk-ant-...
-
-cargo run -- doctor   # optional: confirm the key works (spends no tokens)
-
-cargo run -- new "a booking system for a salon: clients, staff, appointments"
-# → writes ./schema.json, then prints:
-#     rustio-admin import schema.json
-#     rustio-admin plan
-#     rustio-admin commit
+rustio-draft new "a booking system for a salon: clients, staff, appointments"
 ```
 
-`doctor` lists your available models via `GET /v1/models` — it validates the key
-(with friendly 401/403 messages) without generating anything.
+Designs a fresh schema from the brief and writes it (default `./schema.json`).
 
-Flags: `--out <path>` (default `schema.json`), `--model <id>` (default
-`claude-opus-4-8`), `--max-tokens <n>` (default 8000), `--force` (overwrite),
-`--apply` (after writing, run `rustio-admin import` + `plan` and stop for review;
-never commits), `--rustio-admin <path>` (binary for `--apply`; default
-`$RUSTIO_ADMIN_BIN` or `rustio-admin` on PATH).
-
-With `--apply` (run inside a Builder project):
-
-```sh
-rustio-draft new "a blog with posts and comments" --apply
-# writes schema.json → rustio-admin import schema.json → rustio-admin plan
-# then stops; review the plan and run: rustio-admin commit
-```
-
-Refine an existing schema (edits in place by default; `--apply` works here too):
+### Refine
 
 ```sh
 rustio-draft refine schema.json "add a published boolean to Post"
-# re-runs the model with the current schema + your instruction, prints a diff
-# of what changed, then rewrites schema.json. Use --out other.json to write
-# elsewhere.
 ```
 
-Before writing, `refine` prints exactly what changed and **refuses destructive
-edits** — a removed model or field, a changed field type, or a relaxed `unique`
-constraint — so the model can't silently drop part of your schema. Pass
-`--allow-destructive` to apply them anyway:
+Re-runs the model with the current schema plus your instruction. It **prints a
+diff of what changed** before writing, and **refuses destructive changes by
+default**:
 
 ```sh
 rustio-draft refine schema.json "remove the phone field from Client"
-# → prints the diff, then refuses (nothing written)
+# refused: destructive change (nothing written)
+
 rustio-draft refine schema.json "remove the phone field from Client" --allow-destructive
-# → applies it
+# allowed
 ```
 
-Or use the **studio** — a localhost web UI to draft, edit cards, refine, and
-download/save:
+Refine edits the file in place by default; use `--out other.json` to write
+elsewhere.
+
+### Studio
 
 ```sh
-rustio-draft serve            # → http://127.0.0.1:8787  (--port / --out to change)
+rustio-draft serve            # → http://127.0.0.1:8787
 ```
 
-The studio runs on localhost only and the API key stays in the server process —
-the browser only ever sees schema JSON. Saving applies the same destructive-change
-guard as the CLI: if a save would drop or weaken part of the schema on disk, the
-studio refuses it and offers a **“Save anyway”** confirmation.
+A localhost web UI to draft, edit model/field cards, refine, and download/save.
+
+- **localhost only**,
+- the **API key stays server-side**,
+- the browser only ever sees schema JSON,
+- destructive saves are blocked and offer a **“Save anyway”** confirmation.
+
+### Apply chain
+
+```sh
+rustio-draft new "a blog with posts and comments" --apply
+```
+
+With `--apply` (run inside a Builder project), rustio-draft:
+
+1. writes the schema,
+2. runs `rustio-admin import`,
+3. runs `rustio-admin plan`,
+4. **stops before commit** — you review the plan and run `rustio-admin commit`
+   yourself.
+
+`--apply` also works with `refine`.
+
+## Flags
+
+| Flag                    | Meaning                                                    |
+| ----------------------- | --------------------------------------------------------- |
+| `--out <path>`          | Output path (default `schema.json`)                       |
+| `--model <id>`          | Claude model (default `claude-opus-4-8`)                  |
+| `--max-tokens <n>`      | Max response tokens (default `8000`)                      |
+| `--force`               | Overwrite an existing output file (`new`)                 |
+| `--apply`               | Run `rustio-admin import` + `plan` after writing          |
+| `--rustio-admin <path>` | Path to the RustIO Admin binary for `--apply`             |
+| `--allow-destructive`   | Allow destructive changes on `refine`                     |
+
+`--allow-destructive` applies to `refine`; in the Studio, destructive saves are
+confirmed through the “Save anyway” button instead. `serve` also takes `--port`.
+
+---
+
+## Safety model
+
+rustio-draft assumes the model can be wrong and layers guards so a bad response
+can't corrupt your schema.
+
+### 1. Invalid output is not written
+
+- The Claude call uses **structured outputs** — a JSON Schema whose `type` field
+  is an `enum` of the builder's field types, so the model *cannot* emit a type
+  `import` would reject.
+- The schema requires **`minItems: 1`** for both models and fields, so an
+  empty/degenerate stub (`{"models":[]}` or a model with no fields) is rejected
+  at the API level.
+- Every response is then **re-validated locally** with the same name/type rules
+  RustIO Admin's `import` uses. An invalid schema is never written.
+
+### 2. The model gets corrected feedback
+
+If a response fails validation, rustio-draft re-asks the model with the
+**concrete validation errors** included, up to a small retry budget — a targeted
+correction rather than a blind retry. This applies to `new`, `refine`, and the
+Studio.
+
+### 3. Refine is diff-protected
+
+Before writing a refined schema, rustio-draft computes a **deterministic
+semantic diff** between the old and new schema:
+
+- added models,
+- removed models,
+- added fields,
+- removed fields,
+- changed field types,
+- changed unique flags.
+
+A **model-preservation guard** first stops the model from silently dropping
+whole models. Then these changes are treated as **destructive** and blocked by
+default:
+
+- a removed model,
+- a removed field,
+- a changed field type,
+- a relaxed unique flag (`true → false`).
+
+Pass **`--allow-destructive`** to apply them explicitly. Additive changes (new
+models/fields, tightening a field to `unique`) are always allowed.
+
+### 4. Studio save is protected
+
+The Studio's save uses the same guard against the schema currently on disk. A
+destructive save returns **`409 Conflict`** with the list of destructive
+changes; the UI then offers **“Save anyway”**, which re-sends with the override.
+
+### 5. Network calls are bounded
+
+The Claude API client uses a **connect timeout** and a **total request timeout**,
+so a slow or hung upstream can't stall the CLI or the Studio. Transient failures
+are **retried with bounded backoff** (honoring `Retry-After`):
+
+- retried: `408`, `429`, `529`, other `5xx`, connect errors, timeout errors;
+- **not** retried: `401` and `403` (fail fast), and validation/semantic errors.
+
+---
 
 ## How it works
 
-1. Sends the brief to the Claude Messages API with **structured outputs** — a
-   JSON Schema whose `type` field is an `enum` of the builder's `FIELD_TYPES`,
-   so the model cannot emit a type `import` would reject. The schema also
-   requires at least one model and at least one field per model, so the API
-   rejects an empty stub at the source.
-2. Re-validates the output with the same name/type rules the builder uses. If
-   the result is invalid, it re-asks the model **with the specific problems fed
-   back**, up to a small retry budget, rather than failing on the first miss.
-3. Writes `schema.json`. **It never applies the schema** — you review it and run
-   `rustio-admin import` / `plan` / `commit` yourself.
+```text
+brief
+  ↓
+Claude structured output
+  ↓
+schema validation
+  ↓
+retry with feedback if needed
+  ↓
+schema.json
+  ↓
+rustio-admin import
+  ↓
+rustio-admin plan
+  ↓
+human review
+  ↓
+rustio-admin commit
+```
 
-## Safety
+rustio-draft owns the top half (draft → protect → write). RustIO Admin owns the
+bottom half (import → plan → commit), deterministically and with no AI.
 
-rustio-draft treats the model's output as untrusted and layers several guards so
-an AI slip can't corrupt your schema:
+---
 
-- **No invalid writes.** Every output is re-validated the way `rustio-admin
-  import` will; an invalid schema is never written. Empty/degenerate stubs are
-  blocked at the API level (structured-output `minItems`) and by validation.
-- **Retry with feedback.** `new`, `refine`, and the studio re-ask the model with
-  the concrete validation problems when a response doesn't pass.
-- **Refine never silently loses data.** `refine` guards against the model
-  dropping existing models, and a deterministic diff blocks destructive changes
-  (removed models/fields, changed types, relaxed `unique`) unless you pass
-  `--allow-destructive`. The studio enforces the same guard via a “Save anyway”
-  confirmation.
-- **Resilient transport.** The Claude API client uses connect/request timeouts
-  and retries transient failures (`429`, `529`, other `5xx`, timeouts) with
-  bounded backoff, honoring `Retry-After`. Auth errors (`401`/`403`) fail fast.
+## Other uses
+
+rustio-draft is a **domain-to-schema thinking layer**, so it's useful beyond a
+direct `import`.
+
+**Available today** (built on `new`, `refine`, and the Studio):
+
+- **Client discovery** — turn a business idea into a first data model during an
+  early client meeting.
+- **Schema review** — feed an existing schema to `refine` with an improvement
+  instruction to propose better modeling.
+- **Vertical templates** — generate starter schemas for domains like
+  interpretation booking, waste logistics, clinics, POS, print shops, beauty
+  salons, or field service.
+
+**Future ideas** (not implemented yet):
+
+- **Proposal generation** — turn a schema into a client-facing project summary.
+- **UI blueprint** — derive admin navigation, pages, forms, filters, and
+  dashboards from the schema.
+- **Demo data** — generate realistic demo records from the schema.
+
+---
+
+## Limits
+
+- Field types are intentionally limited to `text`, `integer`, `boolean`,
+  `timestamp`.
+- Relations are represented as plain integer `*_id` fields (e.g. `client_id`).
+- Enums are represented as `text` for now.
+- Money should be stored as `integer` minor units (e.g. cents) for now.
+- It is not a migration engine.
+- It does not guarantee the business model is correct — a human still reviews.
 
 ## Status
 
-Phases **F1** (engine) + **F2** (`--apply` chain) + **F3** (`refine`) + **F4**
-(`serve` studio) + **F5** (CI drift guard on `FIELD_TYPES`), hardened with the
-safety and transport guards described above. Field types are limited to the
-builder's MVP set (`text`, `integer`, `boolean`, `timestamp`); relations are
-modelled as plain `integer` `*_id` fields. See the scope doc.
+Implemented:
+
+- **F1** engine
+- **F2** `--apply` chain
+- **F3** `refine`
+- **F4** localhost Studio
+- **F5** CI drift guard on `FIELD_TYPES`
+- safety hardening (validation, diff, destructive-change protection)
+- transport retry and timeouts
+
+Current field types:
+
+- `text`
+- `integer`
+- `boolean`
+- `timestamp`
+
+See the scope doc for the full design and roadmap.
