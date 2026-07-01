@@ -70,8 +70,21 @@ Refine an existing schema (edits in place by default; `--apply` works here too):
 
 ```sh
 rustio-draft refine schema.json "add a published boolean to Post"
-# re-runs the model with the current schema + your instruction, then rewrites
-# schema.json. Use --out other.json to write elsewhere.
+# re-runs the model with the current schema + your instruction, prints a diff
+# of what changed, then rewrites schema.json. Use --out other.json to write
+# elsewhere.
+```
+
+Before writing, `refine` prints exactly what changed and **refuses destructive
+edits** — a removed model or field, a changed field type, or a relaxed `unique`
+constraint — so the model can't silently drop part of your schema. Pass
+`--allow-destructive` to apply them anyway:
+
+```sh
+rustio-draft refine schema.json "remove the phone field from Client"
+# → prints the diff, then refuses (nothing written)
+rustio-draft refine schema.json "remove the phone field from Client" --allow-destructive
+# → applies it
 ```
 
 Or use the **studio** — a localhost web UI to draft, edit cards, refine, and
@@ -82,20 +95,46 @@ rustio-draft serve            # → http://127.0.0.1:8787  (--port / --out to ch
 ```
 
 The studio runs on localhost only and the API key stays in the server process —
-the browser only ever sees schema JSON.
+the browser only ever sees schema JSON. Saving applies the same destructive-change
+guard as the CLI: if a save would drop or weaken part of the schema on disk, the
+studio refuses it and offers a **“Save anyway”** confirmation.
 
 ## How it works
 
 1. Sends the brief to the Claude Messages API with **structured outputs** — a
    JSON Schema whose `type` field is an `enum` of the builder's `FIELD_TYPES`,
-   so the model cannot emit a type `import` would reject.
-2. Re-validates the output with the same name/type rules the builder uses.
+   so the model cannot emit a type `import` would reject. The schema also
+   requires at least one model and at least one field per model, so the API
+   rejects an empty stub at the source.
+2. Re-validates the output with the same name/type rules the builder uses. If
+   the result is invalid, it re-asks the model **with the specific problems fed
+   back**, up to a small retry budget, rather than failing on the first miss.
 3. Writes `schema.json`. **It never applies the schema** — you review it and run
    `rustio-admin import` / `plan` / `commit` yourself.
+
+## Safety
+
+rustio-draft treats the model's output as untrusted and layers several guards so
+an AI slip can't corrupt your schema:
+
+- **No invalid writes.** Every output is re-validated the way `rustio-admin
+  import` will; an invalid schema is never written. Empty/degenerate stubs are
+  blocked at the API level (structured-output `minItems`) and by validation.
+- **Retry with feedback.** `new`, `refine`, and the studio re-ask the model with
+  the concrete validation problems when a response doesn't pass.
+- **Refine never silently loses data.** `refine` guards against the model
+  dropping existing models, and a deterministic diff blocks destructive changes
+  (removed models/fields, changed types, relaxed `unique`) unless you pass
+  `--allow-destructive`. The studio enforces the same guard via a “Save anyway”
+  confirmation.
+- **Resilient transport.** The Claude API client uses connect/request timeouts
+  and retries transient failures (`429`, `529`, other `5xx`, timeouts) with
+  bounded backoff, honoring `Retry-After`. Auth errors (`401`/`403`) fail fast.
 
 ## Status
 
 Phases **F1** (engine) + **F2** (`--apply` chain) + **F3** (`refine`) + **F4**
-(`serve` studio) + **F5** (CI drift guard on `FIELD_TYPES`). Field types are
-limited to the builder's MVP set (`text`, `integer`, `boolean`, `timestamp`);
-relations are modelled as plain `integer` `*_id` fields. See the scope doc.
+(`serve` studio) + **F5** (CI drift guard on `FIELD_TYPES`), hardened with the
+safety and transport guards described above. Field types are limited to the
+builder's MVP set (`text`, `integer`, `boolean`, `timestamp`); relations are
+modelled as plain `integer` `*_id` fields. See the scope doc.
