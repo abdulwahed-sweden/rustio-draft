@@ -145,7 +145,16 @@ rustio-draft refine schema.json "remove the phone field from Client" --allow-des
 ```
 
 Refine edits the file in place by default; use `--out other.json` to write
-elsewhere.
+elsewhere. Editing in place needs no flag, but writing to a **different file that
+already exists** requires `--force` (so you can't clobber an unrelated schema by
+accident):
+
+```sh
+rustio-draft refine schema.json "add a notes field" --out other.json
+# refused if other.json already exists (nothing written)
+rustio-draft refine schema.json "add a notes field" --out other.json --force
+# overwrites other.json
+```
 
 ### Studio
 
@@ -183,13 +192,15 @@ With `--apply` (run inside a Builder project), rustio-draft:
 | `--out <path>`          | Output path (default `schema.json`)                       |
 | `--model <id>`          | Claude model (default `claude-opus-4-8`)                  |
 | `--max-tokens <n>`      | Max response tokens (default `8000`)                      |
-| `--force`               | Overwrite an existing output file (`new`)                 |
+| `--force`               | Overwrite an existing output file (`new`, or `refine --out`) |
 | `--apply`               | Run `rustio-admin import` + `plan` after writing          |
 | `--rustio-admin <path>` | Path to the RustIO Admin binary for `--apply`             |
 | `--allow-destructive`   | Allow destructive changes on `refine`                     |
 
 `--allow-destructive` applies to `refine`; in the Studio, destructive saves are
-confirmed through the “Save anyway” button instead. `serve` also takes `--port`.
+confirmed through the “Save anyway” button instead. For `refine`, `--force` only
+matters when `--out` targets a different, already-existing file — an in-place edit
+never needs it. `serve` also takes `--port`.
 
 ---
 
