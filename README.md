@@ -13,6 +13,28 @@ then applies deterministically.
 > [`docs/RUSTIO_DRAFT_SCOPE.md`](https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md)
 > (in the rustio-admin repo).
 
+## Setup
+
+Provide your Anthropic API key once:
+
+```sh
+cp .env.example .env      # then open .env and paste your key
+```
+
+That's it. Notes:
+
+- `.env` is **gitignored** — your key is never committed.
+- The key is read **locally** and sent **only** to Anthropic's API — nowhere else.
+- No `.env`? An exported `ANTHROPIC_API_KEY` works too (and takes precedence).
+- Only the commands that call Claude (`new`, `refine`, `serve`, `doctor`) need a
+  key; `--help` and `--version` work without one.
+
+Check it works (spends no tokens):
+
+```sh
+cargo run -- doctor
+```
+
 ## Usage
 
 ```sh

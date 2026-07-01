@@ -234,10 +234,20 @@ fn finalize(doc: &SchemaDoc, out: &Path, apply: &ApplyOpts) -> Result<()> {
     Ok(())
 }
 
-/// Read the Anthropic API key from the environment.
+/// Read the Anthropic API key: from a local `.env` file (if present) or the
+/// `ANTHROPIC_API_KEY` environment variable. Called only by commands that
+/// actually reach Claude, so `--help`, `--version`, and any non-AI path work
+/// with no key set.
 fn api_key() -> Result<String> {
-    std::env::var("ANTHROPIC_API_KEY")
-        .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY is not set; export your Anthropic API key"))
+    // Load `.env` from the project if present. Never overrides a real env var,
+    // so an exported ANTHROPIC_API_KEY still wins. Absent `.env` is not an error.
+    let _ = dotenvy::dotenv();
+    std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+        anyhow::anyhow!(
+            "No ANTHROPIC_API_KEY found. Copy .env.example to .env and add your key, \
+             or export ANTHROPIC_API_KEY. See README."
+        )
+    })
 }
 
 /// Run one `rustio-admin <args>` step, streaming its output to this terminal,

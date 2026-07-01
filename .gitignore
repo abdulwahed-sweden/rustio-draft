@@ -1,1 +1,4 @@
 /target
+
+# Your local API key — never commit it. (.env.example is committed as a template.)
+.env
