@@ -207,7 +207,8 @@ can't corrupt your schema.
   empty/degenerate stub (`{"models":[]}` or a model with no fields) is rejected
   at the API level.
 - Every response is then **re-validated locally** with the same name/type rules
-  RustIO Admin's `import` uses. An invalid schema is never written.
+  RustIO Admin's `import` uses — including **rejecting duplicate model names and
+  duplicate field names** within a model. An invalid schema is never written.
 
 ### 2. The model gets corrected feedback
 
@@ -228,17 +229,25 @@ semantic diff** between the old and new schema:
 - changed field types,
 - changed unique flags.
 
-A **model-preservation guard** first stops the model from silently dropping
-whole models. Then these changes are treated as **destructive** and blocked by
-default:
+These changes are treated as **destructive** and blocked by default:
 
 - a removed model,
 - a removed field,
 - a changed field type,
 - a relaxed unique flag (`true → false`).
 
-Pass **`--allow-destructive`** to apply them explicitly. Additive changes (new
-models/fields, tightening a field to `unique`) are always allowed.
+When blocked, the diff is printed, **nothing is written**, and the file is left
+byte-for-byte unchanged. Additive changes (new models/fields, tightening a field
+to `unique`) are always allowed.
+
+**Without `--allow-destructive`**, a **model-preservation guard** also makes the
+model retry if it drops a model — so an *additive* edit recovers when the model
+gets over-eager, instead of failing.
+
+**With `--allow-destructive`**, that guard is disabled and the deterministic diff
+gate becomes the **single authority**: intentional destructive edits (including
+**removing a whole model**) are applied after the diff is printed. This keeps the
+flag's behavior predictable — the guard can never override an explicit opt-in.
 
 ### 4. Studio save is protected
 
