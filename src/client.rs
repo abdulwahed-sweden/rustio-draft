@@ -2,7 +2,10 @@
 //! HTTP (there is no official Anthropic Rust SDK), constrains the response to
 //! the import contract via structured outputs, and parses it into a [`SchemaDoc`].
 
+use std::time::Duration;
+
 use anyhow::{anyhow, bail, Context, Result};
+use reqwest::StatusCode;
 use serde_json::{json, Value};
 
 use crate::schema::{self, SchemaDoc};
@@ -10,6 +13,23 @@ use crate::schema::{self, SchemaDoc};
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const MODELS_URL: &str = "https://api.anthropic.com/v1/models";
 const API_VERSION: &str = "2023-06-01";
+
+/// Fail fast when the network is unreachable rather than hanging on connect.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Total per-request cap. Responses aren't streamed, so the whole body (thinking
+/// + tokens) must arrive within this; generous because schemas are small.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Total transport attempts (1 initial + 2 retries) for transient failures.
+const MAX_HTTP_ATTEMPTS: usize = 3;
+/// Deterministic backoff before the 1st and 2nd retry: 500ms, then 1s, then 2s
+/// (the last entry is reused/doubled if ever needed). Used when the server
+/// doesn't tell us otherwise via `Retry-After`.
+const BACKOFF: [Duration; 3] = [
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+];
 
 /// Default model. Overridable on the CLI; this is the reference default.
 pub const DEFAULT_MODEL: &str = "claude-opus-4-8";
@@ -49,11 +69,19 @@ impl DraftClient {
     /// Build a client. `api_key` is the Anthropic API key; `model` and
     /// `max_tokens` come from the CLI (with [`DEFAULT_MODEL`] as the default).
     pub fn new(api_key: String, model: String, max_tokens: u32) -> Self {
+        // Build with connect/request timeouts so a slow or hung upstream can't
+        // stall the CLI or a studio request forever. `build()` only fails on TLS
+        // backend init — fall back to the default client rather than panic.
+        let http = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             api_key,
             model,
             max_tokens,
-            http: reqwest::Client::new(),
+            http,
         }
     }
 
@@ -158,14 +186,14 @@ impl DraftClient {
         });
 
         let resp = self
-            .http
-            .post(API_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", API_VERSION)
-            .json(&body)
-            .send()
-            .await
-            .context("could not reach the Claude API")?;
+            .send_retrying(|| {
+                self.http
+                    .post(API_URL)
+                    .header("x-api-key", &self.api_key)
+                    .header("anthropic-version", API_VERSION)
+                    .json(&body)
+            })
+            .await?;
 
         let status = resp.status();
         let v: Value = resp
@@ -185,19 +213,54 @@ impl DraftClient {
         parse_schema_response(&v)
     }
 
+    /// Send a request with bounded retry on transient failures (`408`, `429`,
+    /// any `5xx` including `529`, and connect/timeout transport errors). `build`
+    /// is called once per attempt so the request can be re-issued. Auth and
+    /// validation failures (`4xx` other than 408/429) are returned immediately.
+    async fn send_retrying(
+        &self,
+        build: impl Fn() -> reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response> {
+        let mut attempt = 1;
+        loop {
+            match build().send().await {
+                Ok(resp) if is_retryable(resp.status()) && attempt < MAX_HTTP_ATTEMPTS => {
+                    let delay = backoff_delay(attempt, retry_after_from(&resp));
+                    eprintln!(
+                        "Claude API returned {} — retrying in {:.1}s (attempt {attempt}/{MAX_HTTP_ATTEMPTS})…",
+                        resp.status(),
+                        delay.as_secs_f64()
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+                Ok(resp) => return Ok(resp),
+                Err(e) if is_retryable_error(&e) && attempt < MAX_HTTP_ATTEMPTS => {
+                    let delay = backoff_delay(attempt, None);
+                    eprintln!(
+                        "Claude API request failed ({e}) — retrying in {:.1}s (attempt {attempt}/{MAX_HTTP_ATTEMPTS})…",
+                        delay.as_secs_f64()
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => return Err(anyhow!(e).context("could not reach the Claude API")),
+            }
+            attempt += 1;
+        }
+    }
+
     /// Verify the API key by listing available models (`GET /v1/models`).
     /// Returns the available model IDs on success. Cheap: no tokens are
     /// generated, so this is safe to run as a health check. Maps common auth
     /// failures to friendly messages.
     pub async fn list_models(&self) -> Result<Vec<String>> {
         let resp = self
-            .http
-            .get(MODELS_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", API_VERSION)
-            .send()
-            .await
-            .context("could not reach the Claude API")?;
+            .send_retrying(|| {
+                self.http
+                    .get(MODELS_URL)
+                    .header("x-api-key", &self.api_key)
+                    .header("anthropic-version", API_VERSION)
+            })
+            .await?;
 
         let status = resp.status();
         let v: Value = resp
@@ -272,6 +335,44 @@ fn invalid_schema_error(problems: &[String]) -> anyhow::Error {
     anyhow!(msg)
 }
 
+/// Whether an HTTP status is worth retrying: request-timeout (408), rate-limit
+/// (429), or any server error (500–599, which includes 529 Overloaded). Auth and
+/// other client errors (400/401/403/…) are never retried.
+fn is_retryable(status: StatusCode) -> bool {
+    status == StatusCode::REQUEST_TIMEOUT
+        || status == StatusCode::TOO_MANY_REQUESTS
+        || status.is_server_error()
+}
+
+/// Whether a transport error is worth retrying: a connection failure or a
+/// timeout (as opposed to, say, a malformed-URL error).
+fn is_retryable_error(e: &reqwest::Error) -> bool {
+    e.is_timeout() || e.is_connect()
+}
+
+/// Backoff before re-issuing a request. `attempt` is the 1-based number of the
+/// attempt that just failed. A server-provided `Retry-After` wins; otherwise use
+/// the deterministic [`BACKOFF`] schedule (clamped to its last entry).
+fn backoff_delay(attempt: usize, retry_after: Option<Duration>) -> Duration {
+    if let Some(d) = retry_after {
+        return d;
+    }
+    let idx = (attempt - 1).min(BACKOFF.len() - 1);
+    BACKOFF[idx]
+}
+
+/// Parse a `Retry-After` header given as an integer number of seconds. Ignores
+/// the HTTP-date form (Anthropic sends seconds) and anything unparseable.
+fn parse_retry_after(value: Option<&str>) -> Option<Duration> {
+    value?.trim().parse::<u64>().ok().map(Duration::from_secs)
+}
+
+/// Extract and parse a response's `Retry-After` header, if any.
+fn retry_after_from(resp: &reqwest::Response) -> Option<Duration> {
+    let raw = resp.headers().get(reqwest::header::RETRY_AFTER)?;
+    parse_retry_after(raw.to_str().ok())
+}
+
 /// Extract and parse the schema from a successful Messages API response.
 /// Pulled out of the network path so it can be unit-tested.
 fn parse_schema_response(v: &Value) -> Result<SchemaDoc> {
@@ -305,6 +406,51 @@ mod tests {
 
     fn doc(json: &str) -> SchemaDoc {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn retryable_statuses_include_408_429_529_and_5xx() {
+        for code in [408, 429, 500, 502, 503, 504, 529] {
+            assert!(
+                is_retryable(StatusCode::from_u16(code).unwrap()),
+                "{code} should be retryable"
+            );
+        }
+    }
+
+    #[test]
+    fn non_retryable_statuses_exclude_400_401_403_and_success() {
+        for code in [200, 400, 401, 403, 404, 422] {
+            assert!(
+                !is_retryable(StatusCode::from_u16(code).unwrap()),
+                "{code} should not be retryable"
+            );
+        }
+    }
+
+    #[test]
+    fn retry_after_header_is_honored_over_backoff() {
+        // A parseable Retry-After (seconds) wins over the schedule…
+        assert_eq!(
+            backoff_delay(1, parse_retry_after(Some("7"))),
+            Duration::from_secs(7)
+        );
+        assert_eq!(
+            parse_retry_after(Some("  10 ")),
+            Some(Duration::from_secs(10))
+        );
+        // …and unparseable / missing values fall back to the schedule.
+        assert_eq!(parse_retry_after(Some("soon")), None);
+        assert_eq!(parse_retry_after(None), None);
+    }
+
+    #[test]
+    fn backoff_schedule_is_500ms_1s_2s_then_clamps() {
+        assert_eq!(backoff_delay(1, None), Duration::from_millis(500));
+        assert_eq!(backoff_delay(2, None), Duration::from_secs(1));
+        assert_eq!(backoff_delay(3, None), Duration::from_secs(2));
+        // Beyond the schedule, stay at the last (2s) rather than panic.
+        assert_eq!(backoff_delay(9, None), Duration::from_secs(2));
     }
 
     #[test]

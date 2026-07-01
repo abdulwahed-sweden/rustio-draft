@@ -111,7 +111,7 @@ function setStatus(el, msg, kind) {
 async function postJSON(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error || ("HTTP " + r.status)); e.problems = data.problems; throw e; }
+  if (!r.ok) { const e = new Error(data.error || ("HTTP " + r.status)); e.problems = data.problems; e.status = r.status; throw e; }
   return data;
 }
 
@@ -220,10 +220,10 @@ $("refine").onclick = async () => {
 
 $("addModel").onclick = () => { schema.models.push({ name: "", fields: [] }); render(); };
 
-$("save").onclick = async () => {
+async function doSave(allowDestructive) {
   setStatus($("saveStatus"), "saving…");
   try {
-    const data = await postJSON("/api/save", { schema });
+    const data = await postJSON("/api/save", { schema, allow_destructive: !!allowDestructive });
     setStatus($("saveStatus"), "saved → " + data.path, "ok");
   } catch (e) {
     setStatus($("saveStatus"), e.message, "err");
@@ -232,8 +232,17 @@ $("save").onclick = async () => {
       e.problems.forEach((p) => { const li = document.createElement("li"); li.textContent = p; ul.appendChild(li); });
       $("saveStatus").appendChild(ul);
     }
+    // 409 = destructive changes refused. Offer an explicit override.
+    if (e.status === 409) {
+      const btn = document.createElement("button");
+      btn.className = "primary"; btn.style.marginTop = "8px"; btn.textContent = "Save anyway";
+      btn.onclick = () => doSave(true);
+      $("saveStatus").appendChild(btn);
+    }
   }
-};
+}
+
+$("save").onclick = () => doSave(false);
 
 $("download").onclick = () => {
   const blob = new Blob([JSON.stringify(schema, null, 2) + "\n"], { type: "application/json" });

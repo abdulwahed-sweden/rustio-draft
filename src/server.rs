@@ -6,7 +6,7 @@
 //! key stays server-side** — the browser only ever sees schema JSON.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -20,7 +20,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::schema::{self, SchemaDoc};
-use crate::DraftClient;
+use crate::{diff, DraftClient};
 
 const STUDIO_HTML: &str = include_str!("../assets/studio.html");
 
@@ -85,6 +85,10 @@ struct RefineReq {
 #[derive(Deserialize)]
 struct SaveReq {
     schema: SchemaDoc,
+    /// Opt-in to write destructive changes (removed models/fields, changed
+    /// types, relaxed unique). The UI sends this after a "Save anyway" confirm.
+    #[serde(default)]
+    allow_destructive: bool,
 }
 
 #[derive(Serialize)]
@@ -92,7 +96,7 @@ struct SchemaResp {
     schema: SchemaDoc,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct SaveResp {
     ok: bool,
     path: String,
@@ -132,6 +136,13 @@ async fn refine(
     Ok(Json(SchemaResp { schema: doc }))
 }
 
+/// Read and parse the schema currently at `path`, if it exists and is valid
+/// JSON. Returns `None` (rather than erroring) when there's no usable baseline.
+fn read_schema(path: &Path) -> Option<SchemaDoc> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 async fn save(
     State(s): State<Arc<AppState>>,
     Json(req): Json<SaveReq>,
@@ -146,6 +157,28 @@ async fn save(
             }),
         ));
     }
+
+    // Destructive-change guard, mirroring the CLI. Baseline is the schema
+    // currently on disk (what this save would overwrite); a missing or
+    // unparseable file means there's nothing to lose, so we skip the check.
+    // On a destructive diff we refuse with 409 and the list of destructive
+    // changes; the UI offers "Save anyway", which resends allow_destructive=true.
+    if !req.allow_destructive {
+        if let Some(current) = read_schema(&s.out_path) {
+            let changes = diff::between(&current, &req.schema);
+            if changes.is_destructive() {
+                return Err((
+                    StatusCode::CONFLICT,
+                    Json(ErrResp {
+                        error: "saving these changes is destructive — confirm to save anyway"
+                            .into(),
+                        problems: Some(changes.destructive_changes()),
+                    }),
+                ));
+            }
+        }
+    }
+
     let pretty = serde_json::to_string_pretty(&req.schema).map_err(|e| upstream(e.into()))?;
     std::fs::write(&s.out_path, format!("{pretty}\n")).map_err(|e| {
         (
@@ -198,4 +231,77 @@ pub async fn run(
         .await
         .context("studio server error")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_for(out_path: PathBuf) -> Arc<AppState> {
+        Arc::new(AppState {
+            api_key: "test-key".into(),
+            default_model: "test-model".into(),
+            default_max_tokens: 8000,
+            out_path,
+        })
+    }
+
+    fn parse(json: &str) -> SchemaDoc {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[tokio::test]
+    async fn destructive_save_returns_409_then_succeeds_with_opt_in() {
+        // Baseline on disk: Client with two fields.
+        let path = std::env::temp_dir().join("rustio_draft_save_409_test.json");
+        std::fs::write(
+            &path,
+            r#"{"models":[{"name":"Client","fields":[{"name":"full_name","type":"text"},{"name":"phone","type":"text"}]}]}"#,
+        )
+        .unwrap();
+        let state = state_for(path.clone());
+
+        // Proposed save drops Client.phone → destructive.
+        let dropped = parse(
+            r#"{"models":[{"name":"Client","fields":[{"name":"full_name","type":"text"}]}]}"#,
+        );
+
+        // Without opt-in: refused with 409 and the destructive change listed.
+        let refused = save(
+            State(state.clone()),
+            Json(SaveReq {
+                schema: dropped.clone(),
+                allow_destructive: false,
+            }),
+        )
+        .await;
+        let (code, body) = refused.unwrap_err();
+        assert_eq!(code, StatusCode::CONFLICT);
+        assert!(
+            body.0
+                .problems
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|p| p.contains("Client.phone")),
+            "{:?}",
+            body.0.problems
+        );
+        // The file must be untouched by a refused save.
+        assert!(read_schema(&path).unwrap().models[0].fields.len() == 2);
+
+        // With opt-in: it writes.
+        let ok = save(
+            State(state),
+            Json(SaveReq {
+                schema: dropped,
+                allow_destructive: true,
+            }),
+        )
+        .await;
+        assert!(ok.is_ok());
+        assert_eq!(read_schema(&path).unwrap().models[0].fields.len(), 1);
+
+        std::fs::remove_file(&path).ok();
+    }
 }

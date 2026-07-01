@@ -150,6 +150,27 @@ impl SchemaDiff {
         self.is_destructive() && !allow_destructive
     }
 
+    /// Just the destructive changes, as human-readable lines — for the studio's
+    /// 409 response and any confirmation prompt. Empty when the diff is safe.
+    pub fn destructive_changes(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for m in &self.removed_models {
+            out.push(format!("removed model: {m}"));
+        }
+        for f in &self.removed_fields {
+            out.push(format!("removed field: {f}"));
+        }
+        for c in &self.changed_types {
+            out.push(format!("changed type: {}: {} -> {}", c.field, c.from, c.to));
+        }
+        for c in &self.unique_changes {
+            if c.from && !c.to {
+                out.push(format!("relaxed unique: {}: true -> false", c.field));
+            }
+        }
+        out
+    }
+
     /// A human-readable, deterministic summary with one section per change kind.
     /// Empty sections print `- none` so the report shape is always the same.
     pub fn summary(&self) -> String {
@@ -364,5 +385,34 @@ mod tests {
         assert!(d.is_empty());
         assert!(!d.is_destructive());
         assert!(d.summary().contains("Added models:\n- none"));
+    }
+
+    #[test]
+    fn destructive_changes_lists_only_destructive_items() {
+        // Drop Client.phone, remove Appointment, relax Client.email uniqueness,
+        // and add a model — only the first three are destructive.
+        let after = doc(r#"{ "models": [
+            { "name": "Client", "fields": [
+                { "name": "full_name", "type": "text" },
+                { "name": "email", "type": "text" } ] },
+            { "name": "Invoice", "fields": [ { "name": "amount", "type": "integer" } ] } ] }"#);
+        let d = between(&base(), &after);
+        let items = d.destructive_changes();
+        assert!(
+            items.iter().any(|i| i == "removed model: Appointment"),
+            "{items:?}"
+        );
+        assert!(
+            items.iter().any(|i| i == "removed field: Client.phone"),
+            "{items:?}"
+        );
+        assert!(
+            items
+                .iter()
+                .any(|i| i == "relaxed unique: Client.email: true -> false"),
+            "{items:?}"
+        );
+        // The added model is not destructive, so it must not appear here.
+        assert!(!items.iter().any(|i| i.contains("Invoice")), "{items:?}");
     }
 }
