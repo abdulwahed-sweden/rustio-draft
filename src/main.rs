@@ -12,7 +12,10 @@ use std::process::ExitCode;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
-use rustio_draft::{diff, resolve_rustio_admin_bin, schema, DraftClient, SchemaDoc, DEFAULT_MODEL};
+use rustio_draft::{
+    diff, resolve_rustio_admin_bin, schema, DraftClient, ModelPreservationError, SchemaDoc,
+    DEFAULT_MODEL,
+};
 
 /// Setup-time genesis: a brief in, a rustio-admin schema.json out. Never runs at
 /// runtime; the runtime and CLI contain no AI.
@@ -53,6 +56,9 @@ enum Command {
         /// types, or relaxing a unique constraint). Refused by default.
         #[arg(long)]
         allow_destructive: bool,
+        /// Overwrite an existing --out file that differs from the input.
+        #[arg(long)]
+        force: bool,
         #[command(flatten)]
         gen: GenOpts,
         #[command(flatten)]
@@ -126,9 +132,10 @@ async fn run() -> Result<()> {
             instruction,
             out,
             allow_destructive,
+            force,
             gen,
             apply,
-        } => refine(path, instruction, out, allow_destructive, gen, apply).await,
+        } => refine(path, instruction, out, allow_destructive, force, gen, apply).await,
         Command::Serve { port, out, gen } => {
             rustio_draft::server::run(api_key()?, gen.model, gen.max_tokens, out, port).await
         }
@@ -178,6 +185,7 @@ async fn refine(
     instruction: String,
     out: Option<PathBuf>,
     allow_destructive: bool,
+    force: bool,
     gen: GenOpts,
     apply: ApplyOpts,
 ) -> Result<()> {
@@ -186,18 +194,37 @@ async fn refine(
     let current: SchemaDoc = serde_json::from_str(&raw)
         .with_context(|| format!("{} is not a valid schema.json", path.display()))?;
 
+    // Writing to a *different* file that already exists needs --force, matching
+    // `new`. Editing the input in place (no --out, or --out == input) is the
+    // normal refine flow and never needs --force. Checked before the API call so
+    // we don't spend tokens on a refine we'd refuse to save.
+    if out_needs_force(out.as_deref(), &path, force) {
+        let target = out
+            .as_ref()
+            .expect("out_needs_force is false when out is None");
+        bail!(
+            "{} already exists; pass --force to overwrite",
+            target.display()
+        );
+    }
+
     let client = DraftClient::new(api_key()?, gen.model.clone(), gen.max_tokens);
     eprintln!("Refining {} with {}…", path.display(), gen.model);
 
-    // `refine` retries-until-valid internally; if it still fails, make clear the
-    // file was left untouched (finalize never writes an invalid schema anyway).
-    // Passing `allow_destructive` disables refine's model-preservation guard so
-    // an intentional model removal reaches the diff gate below.
+    // `refine` retries-until-valid internally. Distinguish the two failure modes
+    // so the message is clear: the model-preservation guard tripping (the model
+    // tried to drop models on a non-destructive refine) vs any other failure.
     let doc = match client
         .refine(&current, &instruction, allow_destructive)
         .await
     {
         Ok(doc) => doc,
+        Err(e) if e.downcast_ref::<ModelPreservationError>().is_some() => bail!(
+            "The model tried to drop existing models during a safe refine. {} was \
+             left unchanged. Use --allow-destructive only if you intended to \
+             remove models.",
+            path.display()
+        ),
         Err(e) => bail!(
             "{e:#}\n{} was left unchanged — try again or rephrase.",
             path.display()
@@ -300,4 +327,51 @@ fn run_step(bin: &str, args: &[&str]) -> Result<()> {
         bail!("`{pretty}` failed (exit {})", status.code().unwrap_or(-1));
     }
     Ok(())
+}
+
+/// Whether a `refine` must refuse to write: it targets a *different* file (via
+/// `--out`) that already exists, without `--force`. Editing the input in place
+/// (no `--out`, or `--out` equal to the input) never needs `--force`.
+fn out_needs_force(out: Option<&Path>, input: &Path, force: bool) -> bool {
+    match out {
+        Some(target) => target != input && target.exists() && !force,
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::out_needs_force;
+    use std::path::Path;
+
+    #[test]
+    fn refine_out_overwrite_guard() {
+        let dir = std::env::temp_dir();
+        let input = dir.join("rustio_draft_refine_input.json");
+        let existing = dir.join("rustio_draft_refine_existing_out.json");
+        let absent = dir.join("rustio_draft_refine_absent_out.json");
+        std::fs::write(&input, "{}").unwrap();
+        std::fs::write(&existing, "{}").unwrap();
+        std::fs::remove_file(&absent).ok(); // ensure it does not exist
+
+        // In place (no --out) → never blocked.
+        assert!(!out_needs_force(None, &input, false));
+        // --out equal to the input → in place, not blocked.
+        assert!(!out_needs_force(Some(&input), &input, false));
+        // --out to a different existing file, no --force → blocked.
+        assert!(out_needs_force(Some(&existing), &input, false));
+        // …same, with --force → allowed.
+        assert!(!out_needs_force(Some(&existing), &input, true));
+        // --out to a different, non-existent file → nothing to overwrite.
+        assert!(!out_needs_force(Some(&absent), &input, false));
+        // A relative, definitely-absent path is likewise fine.
+        assert!(!out_needs_force(
+            Some(Path::new("definitely_absent_rustio_draft.json")),
+            &input,
+            false
+        ));
+
+        std::fs::remove_file(&input).ok();
+        std::fs::remove_file(&existing).ok();
+    }
 }

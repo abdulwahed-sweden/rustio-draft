@@ -13,7 +13,7 @@ pub mod diff;
 pub mod schema;
 pub mod server;
 
-pub use client::{DraftClient, DEFAULT_MODEL};
+pub use client::{DraftClient, ModelPreservationError, DEFAULT_MODEL};
 pub use diff::SchemaDiff;
 pub use schema::{validate, SchemaDoc, SchemaField, SchemaModel, FIELD_TYPES};
 

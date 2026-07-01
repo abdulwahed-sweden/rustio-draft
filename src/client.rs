@@ -30,6 +30,9 @@ const BACKOFF: [Duration; 3] = [
     Duration::from_secs(1),
     Duration::from_secs(2),
 ];
+/// Upper bound on a server-provided `Retry-After`, so a hostile or misconfigured
+/// value (e.g. `Retry-After: 86400`) can't make the CLI sleep for a long time.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 
 /// Default model. Overridable on the CLI; this is the reference default.
 pub const DEFAULT_MODEL: &str = "claude-opus-4-8";
@@ -143,15 +146,16 @@ impl DraftClient {
             let doc = self
                 .complete(base_user.clone(), feedback.as_deref())
                 .await?;
-            // Collect structural problems and caller-specific ones together, so
-            // one retry can fix everything at once.
-            let mut problems = schema::validate(&doc).err().unwrap_or_default();
-            if let Err(extra) = extra_check(&doc) {
-                problems.extend(extra);
-            }
-            if problems.is_empty() {
+            // Keep structural (schema) problems and the caller's guard problems
+            // separate so the final error can be classified, but feed them back
+            // together so one retry can fix everything at once.
+            let structural = schema::validate(&doc).err().unwrap_or_default();
+            let guard = extra_check(&doc).err().unwrap_or_default();
+            if structural.is_empty() && guard.is_empty() {
                 return Ok(doc);
             }
+            let mut problems = structural.clone();
+            problems.extend(guard.iter().cloned());
             if attempt < MAX_ATTEMPTS {
                 eprintln!(
                     "The model returned an invalid schema (attempt {attempt}/{MAX_ATTEMPTS}) — retrying…"
@@ -162,6 +166,11 @@ impl DraftClient {
                 // Feed the problems back so the next attempt is a targeted
                 // correction rather than a blind re-roll.
                 feedback = Some(problems);
+            } else if structural.is_empty() && !guard.is_empty() {
+                // The schema itself is fine — the only reason we reject it is the
+                // caller's guard (refine's model-preservation rule). Surface a
+                // typed error so the CLI can explain it clearly.
+                return Err(ModelPreservationError { problems: guard }.into());
             } else {
                 return Err(invalid_schema_error(&problems));
             }
@@ -312,6 +321,29 @@ fn parse_model_ids(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Error returned by [`refine`](DraftClient::refine) when the *only* reason the
+/// result was rejected is the model-preservation guard — i.e. the model kept
+/// dropping existing models during a non-destructive refine. Distinguished from a
+/// plain invalid schema so the CLI can tell the user to use `--allow-destructive`
+/// if the removal was intended. (Only produced when `allow_destructive` is off,
+/// since that is the only time the guard runs.)
+#[derive(Debug)]
+pub struct ModelPreservationError {
+    /// The per-model "… is missing" problems from the last attempt.
+    pub problems: Vec<String>,
+}
+
+impl std::fmt::Display for ModelPreservationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the model kept dropping existing models across {MAX_ATTEMPTS} attempts"
+        )
+    }
+}
+
+impl std::error::Error for ModelPreservationError {}
+
 /// Guard for `refine`: report any model that was in `before` but is missing from
 /// `after`. Refine edits in place by default, so a lossy result would overwrite
 /// the user's schema — [`complete_valid`](DraftClient::complete_valid) retries on
@@ -365,11 +397,12 @@ fn is_retryable_error(e: &reqwest::Error) -> bool {
 }
 
 /// Backoff before re-issuing a request. `attempt` is the 1-based number of the
-/// attempt that just failed. A server-provided `Retry-After` wins; otherwise use
-/// the deterministic [`BACKOFF`] schedule (clamped to its last entry).
+/// attempt that just failed. A server-provided `Retry-After` wins but is clamped
+/// to [`MAX_RETRY_AFTER`]; otherwise use the deterministic [`BACKOFF`] schedule
+/// (clamped to its last entry).
 fn backoff_delay(attempt: usize, retry_after: Option<Duration>) -> Duration {
     if let Some(d) = retry_after {
-        return d;
+        return d.min(MAX_RETRY_AFTER);
     }
     let idx = (attempt - 1).min(BACKOFF.len() - 1);
     BACKOFF[idx]
@@ -444,7 +477,7 @@ mod tests {
 
     #[test]
     fn retry_after_header_is_honored_over_backoff() {
-        // A parseable Retry-After (seconds) wins over the schedule…
+        // A small, parseable Retry-After (seconds) wins over the schedule…
         assert_eq!(
             backoff_delay(1, parse_retry_after(Some("7"))),
             Duration::from_secs(7)
@@ -456,6 +489,21 @@ mod tests {
         // …and unparseable / missing values fall back to the schedule.
         assert_eq!(parse_retry_after(Some("soon")), None);
         assert_eq!(parse_retry_after(None), None);
+    }
+
+    #[test]
+    fn huge_retry_after_is_clamped() {
+        // A hostile/misconfigured Retry-After can't make us sleep forever.
+        assert_eq!(
+            backoff_delay(1, parse_retry_after(Some("86400"))),
+            MAX_RETRY_AFTER
+        );
+        // Exactly at the cap is unchanged; just under the cap is honored as-is.
+        assert_eq!(backoff_delay(1, Some(MAX_RETRY_AFTER)), MAX_RETRY_AFTER);
+        assert_eq!(
+            backoff_delay(1, Some(Duration::from_secs(59))),
+            Duration::from_secs(59)
+        );
     }
 
     #[test]
