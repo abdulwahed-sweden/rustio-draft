@@ -13,19 +13,6 @@ then applies deterministically.
 > [`docs/RUSTIO_DRAFT_SCOPE.md`](https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md)
 > (in the rustio-admin repo).
 
-## Demo
-
-![rustio-draft: a brief becomes a schema.json](demo/rustio-draft.gif)
-
-The GIF above is a real run. Reproduce (or refresh) it in one command with
-[vhs](https://github.com/charmbracelet/vhs):
-
-```sh
-cargo install --path .              # put `rustio-draft` on PATH
-export ANTHROPIC_API_KEY=sk-ant-... # the run makes a real Claude call
-vhs demo/rustio-draft.tape          # → demo/rustio-draft.gif
-```
-
 ## Usage
 
 ```sh
