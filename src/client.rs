@@ -14,6 +14,10 @@ const API_VERSION: &str = "2023-06-01";
 /// Default model. Overridable on the CLI; this is the reference default.
 pub const DEFAULT_MODEL: &str = "claude-opus-4-8";
 
+/// How many times to ask the model for a valid schema before giving up. The
+/// first attempt is plain; later attempts feed the validation problems back.
+const MAX_ATTEMPTS: usize = 2;
+
 /// System prompt: teach the model the contract and the field-type vocabulary.
 const SYSTEM_PROMPT: &str = "\
 You are a database schema designer for rustio-admin, a Postgres admin framework. \
@@ -53,15 +57,18 @@ impl DraftClient {
         }
     }
 
-    /// Turn a natural-language brief into a [`SchemaDoc`]. The result is the raw
-    /// model proposal — callers MUST still run [`schema::validate`] before use.
+    /// Turn a natural-language brief into a [`SchemaDoc`]. The returned document
+    /// has already passed [`schema::validate`]; callers re-check it before
+    /// writing as a final gate.
     pub async fn generate(&self, brief: &str) -> Result<SchemaDoc> {
-        self.complete(brief.to_string()).await
+        // A fresh design has nothing to preserve, so no extra check.
+        self.complete_valid(brief.to_string(), |_| Ok(())).await
     }
 
     /// Apply an edit instruction to an existing schema and return the COMPLETE
-    /// updated document. The result is the raw model proposal — callers MUST
-    /// still run [`schema::validate`] before use.
+    /// updated document. Like [`generate`](Self::generate), the result is already
+    /// validated — and, additionally, guarded against silently dropping models
+    /// that were in the input (see [`dropped_models`]).
     pub async fn refine(&self, current: &SchemaDoc, instruction: &str) -> Result<SchemaDoc> {
         let current_json = serde_json::to_string_pretty(current)
             .context("could not serialize the current schema")?;
@@ -72,13 +79,73 @@ impl DraftClient {
              present MUST still be there, plus the change. Do NOT drop any model \
              or field, and never return an empty `models` list."
         );
-        self.complete(user).await
+        self.complete_valid(user, |doc| dropped_models(current, doc))
+            .await
+    }
+
+    /// Ask the model for a schema and keep it only if it passes
+    /// [`schema::validate`] **and** `extra_check`; on failure, re-ask up to
+    /// [`MAX_ATTEMPTS`] times, feeding the concrete problems back so the model can
+    /// correct itself. Shared by [`generate`](Self::generate) and
+    /// [`refine`](Self::refine) (and thus the CLI and the studio), so every entry
+    /// point is equally robust against an invalid or lossy response. `extra_check`
+    /// is a caller-supplied validator for guarantees `schema::validate` can't see
+    /// — e.g. refine's "don't drop existing models" rule.
+    async fn complete_valid(
+        &self,
+        base_user: String,
+        extra_check: impl Fn(&SchemaDoc) -> Result<(), Vec<String>>,
+    ) -> Result<SchemaDoc> {
+        let mut feedback: Option<Vec<String>> = None;
+        for attempt in 1..=MAX_ATTEMPTS {
+            let doc = self
+                .complete(base_user.clone(), feedback.as_deref())
+                .await?;
+            // Collect structural problems and caller-specific ones together, so
+            // one retry can fix everything at once.
+            let mut problems = schema::validate(&doc).err().unwrap_or_default();
+            if let Err(extra) = extra_check(&doc) {
+                problems.extend(extra);
+            }
+            if problems.is_empty() {
+                return Ok(doc);
+            }
+            if attempt < MAX_ATTEMPTS {
+                eprintln!(
+                    "The model returned an invalid schema (attempt {attempt}/{MAX_ATTEMPTS}) — retrying…"
+                );
+                for p in &problems {
+                    eprintln!("  - {p}");
+                }
+                // Feed the problems back so the next attempt is a targeted
+                // correction rather than a blind re-roll.
+                feedback = Some(problems);
+            } else {
+                return Err(invalid_schema_error(&problems));
+            }
+        }
+        unreachable!("loop returns or errors on the final attempt")
     }
 
     /// One Messages API round-trip with structured output, returning a parsed
-    /// [`SchemaDoc`]. Shared by [`generate`](Self::generate) and
-    /// [`refine`](Self::refine).
-    async fn complete(&self, user_content: String) -> Result<SchemaDoc> {
+    /// [`SchemaDoc`]. When `problems` is set, the previous attempt's validation
+    /// failures are appended so the model can correct them. Shared by
+    /// [`generate`](Self::generate) and [`refine`](Self::refine).
+    async fn complete(&self, base_user: String, problems: Option<&[String]>) -> Result<SchemaDoc> {
+        let user_content = match problems {
+            None => base_user,
+            Some(problems) => {
+                let listed = problems
+                    .iter()
+                    .map(|p| format!("  - {p}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!(
+                    "{base_user}\n\nYour previous response was invalid:\n{listed}\n\n\
+                     Return a corrected schema that fixes every problem above."
+                )
+            }
+        };
         let body = json!({
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -168,6 +235,43 @@ fn parse_model_ids(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Guard for `refine`: report any model that was in `before` but is missing from
+/// `after`. Refine edits in place by default, so a lossy result would overwrite
+/// the user's schema — [`complete_valid`](DraftClient::complete_valid) retries on
+/// these, then refuses to write. Field *removals* are intentionally allowed (a
+/// refine like "remove the phone field" is legitimate); dropping a whole model
+/// during an edit is the model misbehaving.
+fn dropped_models(before: &SchemaDoc, after: &SchemaDoc) -> Result<(), Vec<String>> {
+    let kept: std::collections::HashSet<&str> =
+        after.models.iter().map(|m| m.name.as_str()).collect();
+    let problems: Vec<String> = before
+        .models
+        .iter()
+        .map(|m| m.name.as_str())
+        .filter(|name| !kept.contains(name))
+        .map(|name| {
+            format!(
+                "model '{name}' from the input is missing — return the COMPLETE \
+                 schema with every existing model preserved, plus the requested change"
+            )
+        })
+        .collect();
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems)
+    }
+}
+
+/// Build the "invalid schema after N attempts" error, listing every problem.
+fn invalid_schema_error(problems: &[String]) -> anyhow::Error {
+    let mut msg = format!("the model returned an invalid schema after {MAX_ATTEMPTS} attempts:");
+    for p in problems {
+        msg.push_str(&format!("\n  - {p}"));
+    }
+    anyhow!(msg)
+}
+
 /// Extract and parse the schema from a successful Messages API response.
 /// Pulled out of the network path so it can be unit-tested.
 fn parse_schema_response(v: &Value) -> Result<SchemaDoc> {
@@ -198,6 +302,31 @@ fn parse_schema_response(v: &Value) -> Result<SchemaDoc> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn doc(json: &str) -> SchemaDoc {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn dropped_models_flags_missing_and_allows_field_removal() {
+        let before = doc(r#"{ "models": [
+                { "name": "Client", "fields": [ { "name": "full_name", "type": "text" }, { "name": "phone", "type": "text" } ] },
+                { "name": "Appointment", "fields": [ { "name": "starts_at", "type": "timestamp" } ] } ] }"#);
+
+        // A model vanished → a problem naming it.
+        let lossy = doc(
+            r#"{ "models": [ { "name": "Client", "fields": [ { "name": "full_name", "type": "text" } ] } ] }"#,
+        );
+        let errs = dropped_models(&before, &lossy).unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].contains("Appointment"), "{errs:?}");
+
+        // Same models, a field removed from Client → allowed (no problem).
+        let field_removed = doc(r#"{ "models": [
+                { "name": "Client", "fields": [ { "name": "full_name", "type": "text" } ] },
+                { "name": "Appointment", "fields": [ { "name": "starts_at", "type": "timestamp" } ] } ] }"#);
+        assert!(dropped_models(&before, &field_removed).is_ok());
+    }
 
     #[test]
     fn parses_structured_text_block() {

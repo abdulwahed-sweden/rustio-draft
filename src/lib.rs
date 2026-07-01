@@ -9,10 +9,12 @@
 //! <https://github.com/abdulwahed-sweden/rustio-admin/blob/main/docs/RUSTIO_DRAFT_SCOPE.md>.
 
 pub mod client;
+pub mod diff;
 pub mod schema;
 pub mod server;
 
 pub use client::{DraftClient, DEFAULT_MODEL};
+pub use diff::SchemaDiff;
 pub use schema::{validate, SchemaDoc, SchemaField, SchemaModel, FIELD_TYPES};
 
 /// Resolve the `rustio-admin` binary to shell out to for `--apply`: an explicit

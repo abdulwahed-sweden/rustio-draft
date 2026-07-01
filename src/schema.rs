@@ -65,6 +65,9 @@ pub fn import_json_schema() -> Value {
             "project": { "type": "string", "description": "Optional project name (lowercase, no spaces)." },
             "models": {
                 "type": "array",
+                // At least one model — the API rejects an empty stub at the
+                // source, so we never round-trip a `{"models":[]}` response.
+                "minItems": 1,
                 "description": "The models to generate.",
                 "items": {
                     "type": "object",
@@ -74,6 +77,10 @@ pub fn import_json_schema() -> Value {
                         "name": { "type": "string", "description": "CamelCase model name, e.g. Invoice. No 'id' or timestamps." },
                         "fields": {
                             "type": "array",
+                            // Every model must carry at least one field. Without
+                            // this the model intermittently emits an empty
+                            // `fields: []` stub that only `validate()` would catch.
+                            "minItems": 1,
                             "items": {
                                 "type": "object",
                                 "additionalProperties": false,
@@ -192,6 +199,24 @@ mod tests {
             .map(|v| v.as_str().unwrap())
             .collect();
         assert_eq!(got, FIELD_TYPES);
+    }
+
+    #[test]
+    fn json_schema_requires_non_empty_arrays() {
+        // The API-level guard against degenerate `{"models":[]}` /
+        // `{"fields":[]}` stubs — see import_json_schema.
+        let schema = import_json_schema();
+        let models = &schema["properties"]["models"];
+        assert_eq!(
+            models["minItems"],
+            json!(1),
+            "models must require minItems:1"
+        );
+        assert_eq!(
+            models["items"]["properties"]["fields"]["minItems"],
+            json!(1),
+            "fields must require minItems:1"
+        );
     }
 
     #[test]

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
-use rustio_draft::{resolve_rustio_admin_bin, schema, DraftClient, SchemaDoc, DEFAULT_MODEL};
+use rustio_draft::{diff, resolve_rustio_admin_bin, schema, DraftClient, SchemaDoc, DEFAULT_MODEL};
 
 /// Setup-time genesis: a brief in, a rustio-admin schema.json out. Never runs at
 /// runtime; the runtime and CLI contain no AI.
@@ -49,6 +49,10 @@ enum Command {
         /// Where to write the result (defaults to PATH — i.e. edit in place).
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Permit destructive changes (removed models/fields, changed field
+        /// types, or relaxing a unique constraint). Refused by default.
+        #[arg(long)]
+        allow_destructive: bool,
         #[command(flatten)]
         gen: GenOpts,
         #[command(flatten)]
@@ -121,9 +125,10 @@ async fn run() -> Result<()> {
             path,
             instruction,
             out,
+            allow_destructive,
             gen,
             apply,
-        } => refine(path, instruction, out, gen, apply).await,
+        } => refine(path, instruction, out, allow_destructive, gen, apply).await,
         Command::Serve { port, out, gen } => {
             rustio_draft::server::run(api_key()?, gen.model, gen.max_tokens, out, port).await
         }
@@ -172,6 +177,7 @@ async fn refine(
     path: PathBuf,
     instruction: String,
     out: Option<PathBuf>,
+    allow_destructive: bool,
     gen: GenOpts,
     apply: ApplyOpts,
 ) -> Result<()> {
@@ -183,53 +189,32 @@ async fn refine(
     let client = DraftClient::new(api_key()?, gen.model.clone(), gen.max_tokens);
     eprintln!("Refining {} with {}…", path.display(), gen.model);
 
-    // The model occasionally returns an invalid schema (e.g. an empty `models`
-    // list). Try once more before giving up — and if it still fails, say clearly
-    // that the file was left untouched (finalize never writes an invalid schema).
-    let doc = match refine_once_valid(&client, &current, &instruction).await {
+    // `refine` retries-until-valid internally; if it still fails, make clear the
+    // file was left untouched (finalize never writes an invalid schema anyway).
+    let doc = match client.refine(&current, &instruction).await {
         Ok(doc) => doc,
         Err(e) => bail!(
-            "{e}\n{} was left unchanged — try again or rephrase.",
+            "{e:#}\n{} was left unchanged — try again or rephrase.",
             path.display()
         ),
     };
 
+    // Safety layer: show exactly what changed, and refuse destructive edits
+    // (removed models/fields, changed types, relaxed unique) unless opted in.
+    // The model can return a structurally-valid schema that silently drops a
+    // field, so this deterministic diff — not the model's intent — is the gate.
+    let changes = diff::between(&current, &doc);
+    eprintln!("\nChanges:\n{}\n", changes.summary());
+    if changes.blocks_write(allow_destructive) {
+        bail!(
+            "refine produced destructive changes (see the diff above). Nothing was \
+             written — re-run with --allow-destructive to apply them anyway."
+        );
+    }
+
     // Default to editing in place.
     let out = out.unwrap_or(path);
     finalize(&doc, &out, &apply)
-}
-
-/// Ask the model to refine the schema, retrying once if the result would not
-/// pass validation. Returns a schema that is already valid.
-async fn refine_once_valid(
-    client: &DraftClient,
-    current: &SchemaDoc,
-    instruction: &str,
-) -> Result<SchemaDoc> {
-    const ATTEMPTS: usize = 2;
-    for attempt in 1..=ATTEMPTS {
-        let doc = client.refine(current, instruction).await?;
-        match schema::validate(&doc) {
-            Ok(()) => return Ok(doc),
-            Err(problems) if attempt < ATTEMPTS => {
-                eprintln!(
-                    "The model returned an invalid schema (attempt {attempt}/{ATTEMPTS}) — retrying…"
-                );
-                for p in &problems {
-                    eprintln!("  - {p}");
-                }
-            }
-            Err(problems) => {
-                let mut msg =
-                    format!("the model returned an invalid schema after {ATTEMPTS} attempts:");
-                for p in &problems {
-                    msg.push_str(&format!("\n  - {p}"));
-                }
-                bail!(msg);
-            }
-        }
-    }
-    unreachable!("loop returns or bails on the final attempt")
 }
 
 /// Validate the proposed schema, write it, and either run the deterministic
