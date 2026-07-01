@@ -3,152 +3,407 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rustio-draft studio</title>
+<title>rustio-draft Studio</title>
 <style>
-  :root { --ink:#1c1a16; --muted:#6c675e; --line:#e2ddd3; --bg:#faf9f6; --card:#fff;
-          --accent:#9a4a23; --accent-d:#7d3a18; --ok:#2f7d4f; --err:#ae382c; --radius:10px; }
+  :root {
+    --bg:#fafafa;
+    --panel:#ffffff;
+    --panel-2:#fafafa;
+    --text:#18181b;
+    --muted:#71717a;
+    --muted-2:#a1a1aa;
+    --line:#e7e7ea;
+    --line-2:#dcdce0;
+    --accent:#4f46e5;
+    --accent-hover:#4338ca;
+    --accent-weak:#eef1ff;
+    --accent-line:#c9cdf7;
+    --ok:#15803d;
+    --ok-weak:#f0fdf4;
+    --ok-line:#bbf7d0;
+    --warn:#b45309;
+    --warn-weak:#fffbeb;
+    --warn-line:#fde3a7;
+    --err:#dc2626;
+    --err-weak:#fef2f2;
+    --err-line:#fbcfce;
+    --radius:10px;
+    --radius-sm:7px;
+    --shadow:0 10px 30px rgba(24,24,27,.12);
+    --barh:58px;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-         color:var(--ink); background:var(--bg); }
-  header { padding:18px 24px; border-bottom:1px solid var(--line); background:var(--card); }
-  header h1 { margin:0; font-size:18px; }
-  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
-  main { max-width:980px; margin:0 auto; padding:24px; }
-  .panel { background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-           padding:16px; margin-bottom:18px; }
-  label { display:block; font-weight:600; font-size:13px; margin-bottom:6px; }
-  textarea, input[type=text], select { width:100%; padding:8px 10px; border:1px solid var(--line);
-           border-radius:8px; font:inherit; background:#fff; }
-  textarea { resize:vertical; min-height:64px; }
-  .row { display:flex; gap:10px; align-items:center; }
-  .row > * { min-width:0; }
-  button { font:inherit; font-weight:600; border:1px solid var(--line); background:#fff; color:var(--ink);
-           border-radius:8px; padding:8px 14px; cursor:pointer; }
-  button:hover { border-color:var(--accent); color:var(--accent); }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-  button.primary:hover { background:var(--accent-d); color:#fff; }
-  button.icon { padding:4px 9px; line-height:1; }
-  button:disabled { opacity:.5; cursor:default; }
-  .models { display:grid; gap:14px; }
-  .model { border:1px solid var(--line); border-radius:var(--radius); padding:14px; }
-  .model__head { display:flex; gap:10px; align-items:center; margin-bottom:10px; }
-  .model__head input { font-weight:700; }
-  table { width:100%; border-collapse:collapse; }
-  th { text-align:left; font-size:12px; color:var(--muted); font-weight:600; padding:2px 6px; }
-  td { padding:3px 6px; vertical-align:middle; }
-  td.name { width:46%; } td.type { width:30%; } td.uniq { width:12%; text-align:center; } td.del { width:12%; text-align:right; }
-  .meta { color:var(--muted); font-size:13px; }
-  .actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  pre { background:#1c1a16; color:#e9e4d8; padding:14px; border-radius:8px; overflow:auto;
-        font:13px/1.5 ui-monospace,Menlo,monospace; max-height:340px; }
-  .status { font-size:13px; }
-  .status.ok { color:var(--ok); } .status.err { color:var(--err); }
-  .status ul { margin:6px 0 0; padding-left:18px; }
+  html { scroll-padding-bottom:calc(var(--barh) + 20px); }
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font:13.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, ui-sans-serif, sans-serif;
+    padding-bottom:calc(var(--barh) + 14px);
+    -webkit-font-smoothing:antialiased;
+  }
+  code { font:12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; background:#f4f4f5; border:1px solid var(--line);
+         border-radius:5px; padding:0 5px; color:#3f3f46; }
+  a { color:var(--accent); }
+
+  /* Buttons */
+  .btn {
+    border:1px solid var(--line-2); background:var(--panel); color:var(--text);
+    border-radius:var(--radius-sm); padding:7px 12px; font:inherit; font-weight:550; cursor:pointer;
+    transition:background .12s, border-color .12s, color .12s;
+  }
+  .btn:hover { background:#f4f4f5; border-color:var(--muted-2); }
+  .btn:active { background:#ececee; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn-primary:hover { background:var(--accent-hover); border-color:var(--accent-hover); }
+  .btn-sm { padding:5px 9px; font-size:12.5px; }
+  .btn-ghost { border-color:transparent; background:transparent; color:var(--muted); padding:5px 8px; }
+  .btn-ghost:hover { background:#f4f4f5; color:var(--text); }
+  .btn-danger { border-color:transparent; background:transparent; color:var(--muted); }
+  .btn-danger:hover { background:var(--err-weak); border-color:var(--err-line); color:var(--err); }
+  .full { width:100%; }
+
+  input[type=text], textarea, select {
+    width:100%; border:1px solid var(--line-2); border-radius:var(--radius-sm); background:var(--panel);
+    color:var(--text); padding:7px 9px; font:inherit; outline:none;
+    transition:border-color .12s, box-shadow .12s;
+  }
+  input[type=text]:focus, textarea:focus, select:focus {
+    border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak);
+  }
+  input.bad { border-color:var(--err-line); background:var(--err-weak); }
+  textarea { resize:vertical; }
+  label { display:block; font-weight:600; font-size:12px; color:var(--muted); margin-bottom:5px; }
+  .hint { color:var(--muted); font-size:11.5px; }
   .spacer { flex:1; }
-  .hint { color:var(--muted); font-size:12px; margin-top:4px; }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-  .chip { font-size:11px; font-weight:600; color:var(--accent-d); background:#f4ece1;
-          border:1px solid var(--line); border-radius:999px; padding:2px 9px; }
-  .steps { display:flex; flex-wrap:wrap; align-items:center; gap:6px; color:var(--muted);
-           font-size:12px; margin:2px 0 0; }
-  .steps b { color:var(--ink); font-weight:600; }
-  .steps .arrow { color:var(--line); }
-  .code { background:#1c1a16; color:#e9e4d8; border-radius:8px; padding:10px 12px; margin-top:8px;
-          font:12px/1.6 ui-monospace,Menlo,monospace; white-space:pre; overflow:auto; }
-  .box { border-radius:8px; padding:12px; margin-top:8px; font-size:13px; }
-  .box.ok { background:#eef6f0; border:1px solid #cfe6d7; color:#1f5c3b; }
-  .box.warn { background:#fbf0ee; border:1px solid #ecccc6; color:#8a2c22; }
-  .box h4 { margin:0 0 6px; font-size:13px; }
-  .box .code { margin-top:8px; }
-  input.invalid { border-color:var(--err); background:#fdf3f1; }
-  .typehint { color:var(--muted); font-size:12px; margin:0 0 10px; }
-  .typehint code { background:#f0ebe1; border-radius:4px; padding:1px 5px; }
+
+  /* Header */
+  .topbar {
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    padding:12px 22px; background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  .brand-name { font-size:15px; font-weight:700; letter-spacing:-.01em; }
+  .brand-name span { color:var(--accent); }
+  .brand-sub { font-size:12px; color:var(--muted); margin-top:1px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto; }
+  .chip { font-size:11px; font-weight:600; color:var(--muted); background:var(--panel-2);
+          border:1px solid var(--line); border-radius:999px; padding:3px 9px; white-space:nowrap; }
+
+  /* Workflow strip */
+  .workflow {
+    display:flex; align-items:center; gap:4px; flex-wrap:wrap;
+    padding:9px 22px; background:var(--panel); border-bottom:1px solid var(--line);
+    font-size:12px; color:var(--muted-2);
+  }
+  .wf-step { display:flex; align-items:center; gap:7px; padding:2px 4px; font-weight:600; }
+  .wf-step .dot { width:7px; height:7px; border-radius:50%; background:var(--line-2); }
+  .wf-step.done { color:var(--muted); }
+  .wf-step.done .dot { background:var(--ok); }
+  .wf-step.active { color:var(--accent); }
+  .wf-step.active .dot { background:var(--accent); box-shadow:0 0 0 3px var(--accent-weak); }
+  .wf-sep { color:var(--line-2); }
+
+  /* Layout */
+  .wrap { max-width:1440px; margin:0 auto; padding:18px 22px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); }
+  .panel-pad { padding:14px; }
+  .panel-h { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700;
+             letter-spacing:.02em; text-transform:uppercase; color:var(--muted); }
+  .badge { font-size:11px; font-weight:700; color:var(--accent); background:var(--accent-weak);
+           border-radius:999px; padding:1px 8px; }
+
+  /* Brief card */
+  .brief { margin-bottom:16px; }
+  .brief-head { display:flex; align-items:center; gap:10px; padding:12px 14px; }
+  .brief-head h2 { margin:0; font-size:14px; letter-spacing:-.01em; }
+  .brief-body { padding:0 14px 14px; }
+  .brief.collapsed .brief-body { display:none; }
+  .brief-row { display:flex; gap:10px; align-items:flex-start; margin-top:10px; flex-wrap:wrap; }
+  .brief-row .grow { flex:1; min-width:220px; }
+  .examples { display:flex; gap:6px; flex-wrap:wrap; margin-top:9px; }
+  .status { font-size:12px; font-weight:600; }
+  .status.ok { color:var(--ok); } .status.err { color:var(--err); } .status.muted { color:var(--muted); }
+
+  .board { display:grid; grid-template-columns:260px minmax(0,1fr) 300px; gap:16px; align-items:start; }
+  .col-left, .col-right { position:sticky; top:16px; max-height:calc(100vh - var(--barh) - 34px); overflow:auto; }
+
+  /* Sidebar */
+  .side-top { padding:12px 12px 0; }
+  .side-top .panel-h { margin-bottom:10px; }
+  .search-wrap { padding:0 12px 10px; }
+  .model-list { padding:0 8px; display:flex; flex-direction:column; gap:2px; max-height:52vh; overflow:auto; }
+  .m-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--radius-sm);
+            cursor:pointer; border:1px solid transparent; }
+  .m-item:hover { background:#f4f4f5; }
+  .m-item.sel { background:var(--accent-weak); border-color:var(--accent-line); }
+  .m-item .m-name { font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .m-item.sel .m-name { color:var(--accent); }
+  .m-item .m-name.blank { color:var(--muted-2); font-style:italic; font-weight:500; }
+  .m-item .m-cnt { font-size:11px; color:var(--muted-2); white-space:nowrap; }
+  .m-item .warn-dot { width:6px; height:6px; border-radius:50%; background:var(--warn); flex:none; }
+  .list-empty { padding:14px 12px; color:var(--muted-2); font-size:12.5px; text-align:center; }
+  .side-foot { padding:10px 12px 12px; border-top:1px solid var(--line); margin-top:6px; }
+
+  /* Center editor */
+  .editor-head { display:flex; align-items:center; gap:10px; padding:14px; border-bottom:1px solid var(--line); }
+  .editor-head input.mname { font-size:16px; font-weight:700; letter-spacing:-.01em; border-color:transparent; padding:6px 8px; }
+  .editor-head input.mname:hover { border-color:var(--line-2); }
+  .editor-head .fcount { font-size:11.5px; color:var(--muted); background:var(--panel-2); border:1px solid var(--line);
+                         border-radius:999px; padding:3px 9px; white-space:nowrap; }
+  .editor-body { padding:8px 14px 14px; }
+
+  .ftable { width:100%; border-collapse:collapse; }
+  .ftable th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;
+               color:var(--muted-2); padding:8px 8px 6px; border-bottom:1px solid var(--line); }
+  .ftable td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .ftable tr:last-child td { border-bottom:none; }
+  .ftable td.c-uniq { text-align:center; width:74px; }
+  .ftable td.c-type { width:180px; }
+  .ftable td.c-act { width:44px; text-align:right; }
+  .ftable input[type=text], .ftable select { padding:6px 8px; }
+  .uniq-box { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; }
+
+  .editor-empty, .center-empty {
+    text-align:center; color:var(--muted); padding:40px 20px;
+  }
+  .center-empty h3, .editor-empty h3 { margin:0 0 6px; color:var(--text); font-size:16px; font-weight:650; }
+  .editor-actions { margin-top:10px; }
+
+  /* Right inspector */
+  .insp { display:flex; flex-direction:column; gap:14px; }
+  .insp .panel-pad { padding:13px 14px; }
+  .insp h3 { margin:0 0 10px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); }
+  .stat-row { display:flex; gap:10px; margin-bottom:10px; }
+  .stat { flex:1; background:var(--panel-2); border:1px solid var(--line); border-radius:var(--radius-sm); padding:8px 10px; }
+  .stat .n { font-size:18px; font-weight:700; letter-spacing:-.02em; }
+  .stat .l { font-size:11px; color:var(--muted); }
+  .health-state { display:inline-flex; align-items:center; gap:6px; font-weight:650; font-size:12.5px;
+                  padding:4px 9px; border-radius:999px; }
+  .health-state.good { color:var(--ok); background:var(--ok-weak); border:1px solid var(--ok-line); }
+  .health-state.attn { color:var(--warn); background:var(--warn-weak); border:1px solid var(--warn-line); }
+  .health-state.empty { color:var(--muted); background:var(--panel-2); border:1px solid var(--line); }
+  .issues { margin:10px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:5px; }
+  .issues li { font-size:12px; color:var(--warn); display:flex; gap:7px; }
+  .issues li::before { content:"•"; color:var(--warn); }
+
+  .types { display:flex; flex-direction:column; gap:6px; }
+  .type-item { border:1px solid var(--line); border-radius:var(--radius-sm); padding:7px 9px; background:var(--panel); }
+  .type-item.active { border-color:var(--accent-line); background:var(--accent-weak); }
+  .type-item b { font-family:ui-monospace, Menlo, monospace; font-size:12px; }
+  .type-item .d { font-size:11.5px; color:var(--muted); margin-top:1px; }
+
+  .cmds { background:#f4f4f5; border:1px solid var(--line); border-radius:var(--radius-sm);
+          font:12px/1.7 ui-monospace, Menlo, monospace; color:#3f3f46; padding:10px 12px; white-space:pre-wrap;
+          word-break:break-all; margin:8px 0; }
+  .safety { font-size:12px; color:var(--muted); }
+  .safety b { color:var(--text); font-weight:650; }
+
+  /* Sticky action bar */
+  .actionbar {
+    position:fixed; left:0; right:0; bottom:0; height:var(--barh); z-index:30;
+    background:rgba(255,255,255,.9); backdrop-filter:blur(8px); border-top:1px solid var(--line);
+    display:flex; align-items:center; gap:10px; padding:0 22px;
+  }
+  .ab-meta { color:var(--muted); font-size:12.5px; }
+  .ab-right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+
+  /* Overlays / modals */
+  .overlay { position:fixed; inset:0; z-index:50; background:rgba(24,24,27,.34);
+             display:flex; align-items:center; justify-content:center; padding:20px; }
+  .overlay[hidden] { display:none; }
+  .modal { background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow);
+           width:min(460px, 100%); padding:18px; }
+  .modal-lg { width:min(720px, 100%); }
+  .modal-h { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .modal-h h3 { margin:0; font-size:15px; }
+  .modal h3.mt { margin:0 0 12px; font-size:15px; }
+  .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; align-items:center; flex-wrap:wrap; }
+  .modal pre { background:#f4f4f5; border:1px solid var(--line); border-radius:var(--radius-sm); color:#27272a;
+               font:12px/1.6 ui-monospace, Menlo, monospace; padding:14px; max-height:56vh; overflow:auto; margin:0; }
+  .warn-title { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; color:var(--warn); }
+  .warn-body { margin:8px 0 0; font-size:13px; color:var(--text); }
+  .warn-list { margin:10px 0 0; padding:12px; background:var(--warn-weak); border:1px solid var(--warn-line);
+               border-radius:var(--radius-sm); list-style:none; display:flex; flex-direction:column; gap:5px; }
+  .warn-list li { font-size:12.5px; color:var(--warn); font-family:ui-monospace, Menlo, monospace; }
+  .icon-btn { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:15px; padding:4px 8px; border-radius:6px; }
+  .icon-btn:hover { background:#f4f4f5; color:var(--text); }
+
+  /* Toast */
+  #toast { position:fixed; right:20px; bottom:calc(var(--barh) + 16px); z-index:60;
+           width:min(400px, calc(100% - 40px)); display:flex; flex-direction:column; gap:8px; }
+  #toast:empty { display:none; }
+  .toast { border-radius:var(--radius); padding:12px 14px; font-size:13px; box-shadow:var(--shadow);
+           border:1px solid var(--line); background:var(--panel); display:flex; gap:10px; align-items:flex-start; }
+  .toast.ok { border-color:var(--ok-line); background:var(--ok-weak); }
+  .toast.err { border-color:var(--err-line); background:var(--err-weak); }
+  .toast .t-body { flex:1; }
+  .toast .t-body b { display:block; margin-bottom:2px; }
+  .toast.ok b { color:var(--ok); } .toast.err b { color:var(--err); }
+
+  @media (max-width:1080px) {
+    .board { grid-template-columns:1fr; }
+    .col-left, .col-right { position:static; max-height:none; }
+    .model-list { flex-direction:row; overflow-x:auto; max-height:none; }
+    .m-item { min-width:150px; }
+    .col-right { order:3; }
+  }
+  @media (max-width:640px) {
+    .chips { display:none; }
+    .actionbar { padding:0 14px; }
+    .wrap { padding:14px; }
+    .ftable td.c-type { width:auto; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>rustio-draft studio</h1>
-  <p>Describe your app in plain language → review &amp; edit the schema → save
-  <code>schema.json</code>. rustio-draft <b>drafts and validates</b>; you apply it
-  yourself with <code>rustio-admin</code>. It never imports or commits, and your
-  API key stays on this local server — the browser only ever sees schema JSON.</p>
-  <div class="chips">
-    <span class="chip">Setup-time AI only</span>
-    <span class="chip">Runs on localhost</span>
-    <span class="chip">Writes schema.json</span>
-    <span class="chip">Never imports / commits</span>
-    <span class="chip">API key stays server-side</span>
+
+<div class="topbar">
+  <div>
+    <div class="brand-name">rustio-draft <span>Studio</span></div>
+    <div class="brand-sub">Safe schema drafting for RustIO Admin</div>
   </div>
-  <p class="steps" style="margin-top:10px">
-    <b>brief</b> <span class="arrow">→</span> <b>generate</b>
-    <span class="arrow">→</span> <b>review &amp; edit</b>
-    <span class="arrow">→</span> <b>validate on save</b>
-    <span class="arrow">→</span> <b>rustio-admin import → plan → commit</b>
-  </p>
-</header>
-<main>
-  <section class="panel">
-    <label for="brief">Describe your app</label>
-    <textarea id="brief" placeholder="e.g. a booking system for a salon: clients, staff, appointments"></textarea>
-    <div class="hint">List the things your app tracks. rustio-draft turns them into models and fields.</div>
-    <div class="row" style="margin-top:10px">
-      <input type="text" id="model" placeholder="model (optional, e.g. claude-opus-4-8)" style="max-width:320px">
-      <button class="primary" id="gen">Generate schema</button>
-      <button id="tryExample" title="Fill the brief with an example">Try “Noor School”</button>
+  <div class="chips">
+    <span class="chip">Localhost</span>
+    <span class="chip">Setup-time AI</span>
+    <span class="chip">No runtime AI</span>
+    <span class="chip">schema.json</span>
+    <span class="chip">Human approves</span>
+  </div>
+</div>
+
+<div class="workflow" id="workflow"></div>
+
+<div class="wrap">
+  <!-- Brief -->
+  <section class="panel brief" id="brief">
+    <div class="brief-head">
+      <h2>Describe your app</h2>
       <span class="spacer"></span>
       <span class="status" id="genStatus"></span>
+      <button class="btn btn-ghost btn-sm" id="briefToggle" hidden>Hide</button>
+    </div>
+    <div class="brief-body">
+      <textarea id="briefText" rows="3" placeholder="e.g. a booking system for a salon: clients, staff, appointments"></textarea>
+      <div class="hint" style="margin-top:6px">List the things your app tracks — rustio-draft turns them into models and fields.</div>
+      <div class="examples">
+        <button class="btn btn-sm" data-ex="noor">Noor School</button>
+        <button class="btn btn-sm" data-ex="tolk">Interpretation Booking</button>
+        <button class="btn btn-sm" data-ex="waste">Waste Logistics</button>
+      </div>
+      <div class="brief-row">
+        <input class="grow" type="text" id="model" placeholder="Claude model (optional)">
+        <button class="btn btn-primary" id="genBtn">Generate schema</button>
+      </div>
     </div>
   </section>
 
-  <section class="panel" id="editor" hidden>
-    <div class="actions" style="margin-bottom:8px">
-      <strong>Schema</strong>
-      <span class="meta" id="counts"></span>
-      <span class="spacer"></span>
-      <button id="addModel">+ model</button>
+  <!-- Refine (shown once a schema exists) -->
+  <section class="panel" id="refinePanel" hidden style="margin-bottom:16px">
+    <div style="padding:11px 14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+      <b style="font-size:13px; white-space:nowrap">Refine with AI</b>
+      <input type="text" id="refineInput" placeholder="e.g. add a notes field to Student" style="flex:1; min-width:220px">
+      <button class="btn" id="refineBtn">Refine</button>
+      <span class="status" id="refineStatus"></span>
     </div>
-    <p class="typehint">Field types: <code>text</code> · <code>integer</code> ·
-      <code>boolean</code> · <code>timestamp</code>. <code>id</code> and
-      <code>created_at</code> are added automatically — don't add them.</p>
-    <div class="models" id="models"></div>
-
-    <div class="row" style="margin-top:14px">
-      <input type="text" id="instruction" placeholder="refine with AI: e.g. add a published boolean to Post">
-      <button id="refine">Refine with AI</button>
-    </div>
-    <div class="hint">Sends your <em>current edited</em> schema plus the instruction.
-      The AI's output is re-validated and existing models are preserved before it comes back.</div>
   </section>
 
-  <section class="panel" id="outPanel" hidden>
-    <div class="actions" style="margin-bottom:10px">
-      <button class="primary" id="save">Save schema.json</button>
-      <button id="download">Download</button>
-      <button id="copy">Copy JSON</button>
-      <span class="spacer"></span>
-      <span class="status" id="saveStatus"></span>
+  <!-- Board -->
+  <div class="board">
+    <!-- LEFT: models -->
+    <aside class="panel col-left">
+      <div class="side-top">
+        <div class="panel-h">Models <span class="badge" id="modelCount">0</span></div>
+      </div>
+      <div class="search-wrap">
+        <input type="text" id="search" placeholder="Search models">
+      </div>
+      <div class="model-list" id="modelList"></div>
+      <div class="side-foot">
+        <button class="btn btn-primary full" id="newModelBtn">+ New model</button>
+      </div>
+    </aside>
+
+    <!-- CENTER: selected model -->
+    <main class="panel col-center" id="editor"></main>
+
+    <!-- RIGHT: inspector -->
+    <aside class="col-right insp" id="inspector"></aside>
+  </div>
+</div>
+
+<!-- Sticky actions -->
+<div class="actionbar">
+  <span class="ab-meta" id="barMeta">Ready</span>
+  <div class="ab-right">
+    <button class="btn" id="viewJsonBtn">View JSON</button>
+    <button class="btn" id="downloadBtn">Download</button>
+    <button class="btn btn-primary" id="saveBtn">Save schema.json</button>
+  </div>
+</div>
+
+<!-- New model modal -->
+<div class="overlay" id="newModelOverlay" hidden>
+  <div class="modal">
+    <h3 class="mt">New model</h3>
+    <label for="newModelName">Model name</label>
+    <input type="text" id="newModelName" placeholder="e.g. Student">
+    <div class="hint" style="margin-top:6px">CamelCase, singular — like <code>Student</code> or <code>Invoice</code>.</div>
+    <div class="modal-actions">
+      <button class="btn" id="newModelCancel">Cancel</button>
+      <button class="btn btn-primary" id="newModelCreate">Create model</button>
     </div>
-    <div class="hint" style="margin:-2px 0 10px">Saving validates the schema the same
-      way <code>rustio-admin import</code> will, and blocks changes that would drop
-      or weaken your saved schema.</div>
-    <div id="saveResult"></div>
-    <pre id="preview"></pre>
-  </section>
-</main>
+  </div>
+</div>
+
+<!-- JSON modal -->
+<div class="overlay" id="jsonOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-h"><h3>schema.json</h3><span class="spacer"></span><button class="icon-btn" id="jsonClose">✕</button></div>
+    <pre id="jsonView"></pre>
+    <div class="modal-actions">
+      <button class="btn" id="jsonCopy">Copy JSON</button>
+      <button class="btn" id="jsonDownload">Download JSON</button>
+    </div>
+  </div>
+</div>
+
+<!-- Destructive warning modal -->
+<div class="overlay" id="warnOverlay" hidden>
+  <div class="modal">
+    <div class="warn-title">⚠ This save would remove or weaken your saved schema</div>
+    <p class="warn-body">Blocked by default to prevent accidental data loss. These changes were detected:</p>
+    <ul class="warn-list" id="warnList"></ul>
+    <div class="modal-actions">
+      <button class="btn" id="warnCancel">Cancel</button>
+      <button class="btn btn-primary" id="warnConfirm">Save anyway</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
 
 <script>
+/* ---------- state ---------- */
 let TYPES = ["text", "integer", "boolean", "timestamp"];
+const TYPE_HELP = {
+  text: "names, emails, status, notes",
+  integer: "counts, amounts, *_id references",
+  boolean: "yes/no flags",
+  timestamp: "date/time values",
+};
 let schema = { models: [] };
+let selected = -1;
+let activeType = "text";
+let filter = "";
+let lastSavedPath = null;
+let briefCollapsed = false;
+let toastToken = 0;
 
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function loadTypes() {
   try { const r = await fetch("/api/field-types"); if (r.ok) TYPES = await r.json(); } catch (_) {}
-}
-
-function setStatus(el, msg, kind) {
-  el.className = "status" + (kind ? " " + kind : "");
-  el.textContent = msg || "";
 }
 
 async function postJSON(url, body) {
@@ -158,209 +413,391 @@ async function postJSON(url, body) {
   return data;
 }
 
-function refreshPreview() {
-  const models = schema.models.length;
-  const fields = schema.models.reduce((n, m) => n + (m.fields ? m.fields.length : 0), 0);
-  $("counts").textContent = models + " model(s), " + fields + " field(s)";
-  $("preview").textContent = JSON.stringify(schema, null, 2);
+function fcount(m) { return (m.fields || []).length; }
+function totalFields() { return schema.models.reduce((n, m) => n + fcount(m), 0); }
+
+/* ---------- health ---------- */
+function computeHealth() {
+  const issues = [];
+  const names = schema.models.map((m) => (m.name || "").trim());
+  const nameSeen = {};
+  schema.models.forEach((m, i) => {
+    const nm = names[i];
+    if (!nm) issues.push("Model " + (i + 1) + " has no name");
+    else nameSeen[nm] = (nameSeen[nm] || 0) + 1;
+    const fs = m.fields || [];
+    if (!fs.length) issues.push((nm || "A model") + " has no fields");
+    const fSeen = {};
+    fs.forEach((f) => {
+      const fn = (f.name || "").trim();
+      if (!fn) issues.push((nm || "A model") + " has a field with no name");
+      else fSeen[fn] = (fSeen[fn] || 0) + 1;
+    });
+    Object.keys(fSeen).forEach((fn) => { if (fSeen[fn] > 1) issues.push((nm || "A model") + ": duplicate field '" + fn + "'"); });
+  });
+  Object.keys(nameSeen).forEach((n) => { if (nameSeen[n] > 1) issues.push("Duplicate model name '" + n + "'"); });
+  return issues;
+}
+function modelHasIssue(m, i) {
+  const nm = (m.name || "").trim();
+  if (!nm) return true;
+  if (!(m.fields || []).length) return true;
+  const seen = {};
+  for (const f of (m.fields || [])) {
+    const fn = (f.name || "").trim();
+    if (!fn) return true;
+    if (seen[fn]) return true; seen[fn] = 1;
+  }
+  return false;
 }
 
-function render() {
-  const host = $("models");
+/* ---------- workflow strip ---------- */
+function renderWorkflow() {
+  const steps = ["Brief", "Generate", "Review", "Save", "Import"];
+  let cur = 1;                       // Generate
+  if (schema.models.length) cur = 2; // Review
+  if (lastSavedPath) cur = 4;        // Import
+  $("workflow").innerHTML = steps.map((s, i) => {
+    const cls = i < cur ? "done" : (i === cur ? "active" : "");
+    return '<span class="wf-step ' + cls + '"><span class="dot"></span>' + s + "</span>" +
+      (i < steps.length - 1 ? '<span class="wf-sep">→</span>' : "");
+  }).join("");
+}
+
+/* ---------- sidebar ---------- */
+function renderSidebar() {
+  $("modelCount").textContent = schema.models.length;
+  const host = $("modelList");
   host.innerHTML = "";
-  schema.models.forEach((m, mi) => host.appendChild(modelCard(m, mi)));
-  $("editor").hidden = false;
-  $("outPanel").hidden = false;
-  // Any earlier save result no longer reflects the edited schema.
-  $("saveResult").innerHTML = "";
-  refreshPreview();
+  const f = filter.trim().toLowerCase();
+  const rows = schema.models
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => !f || (m.name || "").toLowerCase().includes(f));
+  if (!schema.models.length) {
+    host.innerHTML = '<div class="list-empty">No models yet.<br>Generate or add one.</div>';
+    return;
+  }
+  if (!rows.length) { host.innerHTML = '<div class="list-empty">No models match “' + esc(filter) + '”.</div>'; return; }
+  rows.forEach(({ m, i }) => {
+    const item = document.createElement("div");
+    item.className = "m-item" + (i === selected ? " sel" : "");
+    const nm = document.createElement("span");
+    nm.className = "m-name" + (m.name ? "" : " blank");
+    nm.textContent = m.name || "Untitled model";
+    const cnt = document.createElement("span");
+    cnt.className = "m-cnt"; cnt.textContent = fcount(m);
+    item.append(nm, cnt);
+    if (modelHasIssue(m, i)) { const d = document.createElement("span"); d.className = "warn-dot"; d.title = "Needs attention"; item.appendChild(d); }
+    item.onclick = () => selectModel(i);
+    host.appendChild(item);
+  });
 }
 
-// Flag an empty name inline so it's easy to spot before saving. (The server
-// remains the authority on what's valid; this is just a hint.)
-function markEmpty(input, value) {
-  input.classList.toggle("invalid", !value || !value.trim());
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-function modelCard(m, mi) {
-  const card = document.createElement("div");
-  card.className = "model";
+/* ---------- center editor ---------- */
+function renderEditor() {
+  const host = $("editor");
+  host.innerHTML = "";
+  if (selected < 0 || selected >= schema.models.length) {
+    host.innerHTML = schema.models.length
+      ? '<div class="center-empty"><h3>Select a model</h3><div class="hint">Pick a model on the left to edit its fields.</div></div>'
+      : '<div class="center-empty"><h3>No schema yet</h3><div class="hint">Describe your app above and generate a schema, or create a model.</div></div>';
+    return;
+  }
+  const m = schema.models[selected];
 
   const head = document.createElement("div");
-  head.className = "model__head";
+  head.className = "editor-head";
   const name = document.createElement("input");
-  name.type = "text"; name.value = m.name || ""; name.placeholder = "ModelName";
-  markEmpty(name, m.name);
-  name.oninput = () => { m.name = name.value; markEmpty(name, name.value); refreshPreview(); };
-  const del = document.createElement("button");
-  del.className = "icon"; del.textContent = "✕ model"; del.title = "Remove model";
-  del.onclick = () => { schema.models.splice(mi, 1); render(); };
-  head.append(name, del);
+  name.type = "text"; name.className = "mname"; name.value = m.name || ""; name.placeholder = "ModelName";
+  name.classList.toggle("bad", !(m.name || "").trim());
+  name.oninput = () => { m.name = name.value; name.classList.toggle("bad", !name.value.trim()); renderSidebar(); renderInspector(); refreshMeta(); };
+  const fc = document.createElement("span");
+  fc.className = "fcount"; fc.id = "fcBadge"; fc.textContent = fcount(m) + (fcount(m) === 1 ? " field" : " fields");
+  const sp = document.createElement("span"); sp.className = "spacer";
+  const rm = document.createElement("button");
+  rm.className = "btn btn-danger btn-sm"; rm.textContent = "Remove model";
+  rm.onclick = () => removeModel(selected);
+  head.append(name, fc, sp, rm);
 
-  const table = document.createElement("table");
-  table.innerHTML = "<thead><tr><th>Field</th><th>Type</th><th>Unique</th><th></th></tr></thead>";
-  const tbody = document.createElement("tbody");
-  (m.fields || []).forEach((f, fi) => tbody.appendChild(fieldRow(m, f, fi)));
-  table.appendChild(tbody);
+  const body = document.createElement("div");
+  body.className = "editor-body";
 
-  const addF = document.createElement("button");
-  addF.className = "icon"; addF.textContent = "+ field"; addF.style.marginTop = "8px";
-  addF.onclick = () => { (m.fields ||= []).push({ name: "", type: TYPES[0] }); render(); };
+  if (fcount(m)) {
+    const table = document.createElement("table");
+    table.className = "ftable";
+    table.innerHTML = "<thead><tr><th>Field name</th><th>Type</th><th>Unique</th><th></th></tr></thead>";
+    const tb = document.createElement("tbody");
+    m.fields.forEach((fld, fi) => tb.appendChild(fieldRow(m, fld, fi)));
+    table.appendChild(tb);
+    body.appendChild(table);
+  } else {
+    const e = document.createElement("div");
+    e.className = "editor-empty";
+    e.innerHTML = "<h3>No fields yet</h3><div class='hint'>Every model needs at least one field before it can be saved.</div>";
+    body.appendChild(e);
+  }
 
-  card.append(head, table, addF);
-  return card;
+  const add = document.createElement("div"); add.className = "editor-actions";
+  const addBtn = document.createElement("button");
+  addBtn.className = "btn btn-sm"; addBtn.textContent = "+ Add field";
+  addBtn.onclick = () => addField();
+  add.appendChild(addBtn);
+  body.appendChild(add);
+
+  host.append(head, body);
 }
 
 function fieldRow(m, f, fi) {
   const tr = document.createElement("tr");
 
-  const tdName = document.createElement("td"); tdName.className = "name";
-  const name = document.createElement("input");
-  name.type = "text"; name.value = f.name || ""; name.placeholder = "field_name";
-  markEmpty(name, f.name);
-  name.oninput = () => { f.name = name.value; markEmpty(name, name.value); refreshPreview(); };
-  tdName.appendChild(name);
+  const tdName = document.createElement("td");
+  const nameI = document.createElement("input");
+  nameI.type = "text"; nameI.value = f.name || ""; nameI.placeholder = "field_name";
+  nameI.classList.toggle("bad", !(f.name || "").trim());
+  nameI.dataset.fi = fi;
+  nameI.onfocus = () => { activeType = f.type; renderInspector(); };
+  nameI.oninput = () => { f.name = nameI.value; nameI.classList.toggle("bad", !nameI.value.trim()); renderSidebar(); renderInspector(); refreshMeta(); };
+  tdName.appendChild(nameI);
 
-  const tdType = document.createElement("td"); tdType.className = "type";
+  const tdType = document.createElement("td"); tdType.className = "c-type";
   const sel = document.createElement("select");
   TYPES.forEach((t) => { const o = document.createElement("option"); o.value = t; o.textContent = t; sel.appendChild(o); });
   sel.value = TYPES.includes(f.type) ? f.type : TYPES[0];
   f.type = sel.value;
-  sel.onchange = () => { f.type = sel.value; refreshPreview(); };
+  sel.onfocus = () => { activeType = sel.value; renderInspector(); };
+  sel.onchange = () => { f.type = sel.value; activeType = sel.value; renderInspector(); refreshMeta(); };
   tdType.appendChild(sel);
 
-  const tdUniq = document.createElement("td"); tdUniq.className = "uniq";
-  const uniq = document.createElement("input");
-  uniq.type = "checkbox"; uniq.checked = !!f.unique;
-  uniq.onchange = () => { if (uniq.checked) f.unique = true; else delete f.unique; refreshPreview(); };
-  tdUniq.appendChild(uniq);
+  const tdUniq = document.createElement("td"); tdUniq.className = "c-uniq";
+  const cb = document.createElement("input");
+  cb.type = "checkbox"; cb.className = "uniq-box"; cb.checked = !!f.unique; cb.title = "Values must be unique";
+  cb.onchange = () => { if (cb.checked) f.unique = true; else delete f.unique; refreshMeta(); };
+  tdUniq.appendChild(cb);
 
-  const tdDel = document.createElement("td"); tdDel.className = "del";
+  const tdAct = document.createElement("td"); tdAct.className = "c-act";
   const del = document.createElement("button");
-  del.className = "icon"; del.textContent = "✕";
-  del.onclick = () => { m.fields.splice(fi, 1); render(); };
-  tdDel.appendChild(del);
+  del.className = "btn btn-danger btn-sm"; del.textContent = "✕"; del.title = "Remove field";
+  del.onclick = () => { m.fields.splice(fi, 1); renderEditor(); renderSidebar(); renderInspector(); refreshMeta(); };
+  tdAct.appendChild(del);
 
-  tr.append(tdName, tdType, tdUniq, tdDel);
+  tr.append(tdName, tdType, tdUniq, tdAct);
   return tr;
 }
 
-const NOOR_EXAMPLE =
-  "Noor School: a school management system with students, parents, teachers, " +
-  "classes, subjects, attendance, exams, invoices, and announcements";
+/* ---------- inspector ---------- */
+function renderInspector() {
+  const issues = computeHealth();
+  const models = schema.models.length;
+  const fields = totalFields();
+  let state = '<span class="health-state empty">Empty</span>';
+  if (models) state = issues.length
+    ? '<span class="health-state attn">Needs attention</span>'
+    : '<span class="health-state good">Ready to save</span>';
 
-$("tryExample").onclick = () => {
-  $("brief").value = NOOR_EXAMPLE;
-  $("brief").focus();
-  setStatus($("genStatus"), "", "");
+  const health =
+    '<div class="panel"><div class="panel-pad"><h3>Schema health</h3>' +
+    '<div class="stat-row">' +
+      '<div class="stat"><div class="n">' + models + '</div><div class="l">models</div></div>' +
+      '<div class="stat"><div class="n">' + fields + '</div><div class="l">fields</div></div>' +
+    '</div>' + state +
+    (issues.length ? '<ul class="issues">' + issues.slice(0, 8).map((i) => "<li>" + esc(i) + "</li>").join("") +
+      (issues.length > 8 ? '<li>… and ' + (issues.length - 8) + ' more</li>' : "") + "</ul>" : "") +
+    "</div></div>";
+
+  const typeHelp =
+    '<div class="panel"><div class="panel-pad"><h3>Field types</h3><div class="types">' +
+    TYPES.map((t) =>
+      '<div class="type-item' + (t === activeType ? " active" : "") + '"><b>' + esc(t) + "</b>" +
+      '<div class="d">' + esc(TYPE_HELP[t] || "") + "</div></div>").join("") +
+    '</div><div class="hint" style="margin-top:9px"><code>id</code> and <code>created_at</code> are added automatically.</div></div></div>';
+
+  const next = lastSavedPath
+    ? '<div class="panel"><div class="panel-pad"><h3>Next steps</h3>' +
+      '<div class="hint">Saved to <code>' + esc(lastSavedPath) + "</code></div>" +
+      '<div class="cmds">' + esc(nextCommands(lastSavedPath)) + "</div>" +
+      '<button class="btn btn-sm" id="copyCmds">Copy commands</button></div></div>'
+    : '<div class="panel"><div class="panel-pad"><h3>Next steps</h3>' +
+      '<div class="hint">Save your schema to get the exact <code>rustio-admin</code> commands.</div></div></div>';
+
+  const safety =
+    '<div class="panel"><div class="panel-pad"><h3>Safety</h3>' +
+    '<div class="safety"><b>rustio-draft drafts and validates schema.json.</b> ' +
+    "It never imports or commits RustIO Admin changes — you review and apply them yourself.</div></div></div>";
+
+  $("inspector").innerHTML = health + typeHelp + next + safety;
+  const cc = $("copyCmds");
+  if (cc) cc.onclick = () => copyText(nextCommands(lastSavedPath), cc, "Copy commands");
+}
+
+/* ---------- meta / orchestration ---------- */
+function refreshMeta() {
+  const m = schema.models.length, f = totalFields();
+  $("barMeta").textContent = m ? (m + " model" + (m === 1 ? "" : "s") + " · " + f + " field" + (f === 1 ? "" : "s")) : "Ready";
+  const fb = $("fcBadge");
+  if (fb && selected >= 0 && schema.models[selected]) {
+    const c = fcount(schema.models[selected]); fb.textContent = c + (c === 1 ? " field" : " fields");
+  }
+  renderWorkflow();
+}
+function renderAll() {
+  renderWorkflow(); renderSidebar(); renderEditor(); renderInspector(); refreshMeta();
+  $("refinePanel").hidden = schema.models.length === 0;
+}
+
+function selectModel(i) { selected = i; renderSidebar(); renderEditor(); renderInspector(); refreshMeta(); }
+
+function addField() {
+  const m = schema.models[selected]; if (!m) return;
+  (m.fields ||= []).push({ name: "", type: TYPES[0] });
+  renderEditor(); renderSidebar(); renderInspector(); refreshMeta();
+  const inputs = $("editor").querySelectorAll('.ftable input[type=text]');
+  const last = inputs[inputs.length - 1]; if (last) last.focus();
+}
+
+function removeModel(i) {
+  schema.models.splice(i, 1);
+  if (selected >= schema.models.length) selected = schema.models.length - 1;
+  renderAll();
+}
+
+/* ---------- brief / examples ---------- */
+const EXAMPLES = {
+  noor: "Noor School: a school management system with students, parents, teachers, classes, subjects, attendance, exams, invoices, and announcements",
+  tolk: "A Swedish interpretation agency system with clients, interpreters, languages, bookings, assignments, certifications, invoices, cancellations, and interpreter availability",
+  waste: "A waste container service system with customers, containers, QR codes, service requests, drivers, assignments, regions, invoices, and job status tracking",
 };
+document.querySelectorAll("[data-ex]").forEach((b) =>
+  (b.onclick = () => { $("briefText").value = EXAMPLES[b.dataset.ex]; $("briefText").focus(); setStatus("genStatus", "", ""); }));
 
-$("gen").onclick = async () => {
-  const brief = $("brief").value.trim();
-  if (!brief) { setStatus($("genStatus"), "enter a brief first", "err"); return; }
-  $("gen").disabled = true; setStatus($("genStatus"), "designing your schema…");
+function setStatus(id, msg, kind) { const el = $(id); el.className = "status" + (kind ? " " + kind : ""); el.textContent = msg || ""; }
+
+function setBriefCollapsed(v) {
+  briefCollapsed = v;
+  $("brief").classList.toggle("collapsed", v);
+  $("briefToggle").hidden = !schema.models.length;
+  $("briefToggle").textContent = v ? "Edit brief" : "Hide";
+}
+$("briefToggle").onclick = () => setBriefCollapsed(!briefCollapsed);
+
+$("genBtn").onclick = async () => {
+  const brief = $("briefText").value.trim();
+  if (!brief) { setStatus("genStatus", "enter a brief first", "err"); return; }
+  $("genBtn").disabled = true; setStatus("genStatus", "designing schema…", "muted");
   try {
     const model = $("model").value.trim() || undefined;
     const data = await postJSON("/api/generate", { brief, model });
-    schema = data.schema; render();
-    setStatus($("genStatus"), "schema ready ✓ — review and edit below", "ok");
-  } catch (e) { setStatus($("genStatus"), e.message, "err"); }
-  finally { $("gen").disabled = false; }
+    schema = data.schema; selected = schema.models.length ? 0 : -1; lastSavedPath = null;
+    renderAll(); setBriefCollapsed(true);
+    setStatus("genStatus", "schema ready ✓", "ok");
+  } catch (e) { setStatus("genStatus", e.message, "err"); }
+  finally { $("genBtn").disabled = false; }
 };
 
-$("refine").onclick = async () => {
-  const instruction = $("instruction").value.trim();
-  if (!instruction) { setStatus($("genStatus"), "enter a refine instruction first", "err"); return; }
-  $("refine").disabled = true; setStatus($("genStatus"), "refining with AI…");
+/* ---------- refine ---------- */
+$("refineBtn").onclick = async () => {
+  const instruction = $("refineInput").value.trim();
+  if (!instruction) { setStatus("refineStatus", "enter an instruction", "err"); return; }
+  $("refineBtn").disabled = true; setStatus("refineStatus", "refining…", "muted");
   try {
     const model = $("model").value.trim() || undefined;
+    const before = selected;
     const data = await postJSON("/api/refine", { schema, instruction, model });
-    schema = data.schema; $("instruction").value = ""; render();
-    setStatus($("genStatus"), "refined ✓", "ok");
-  } catch (e) { setStatus($("genStatus"), e.message, "err"); }
-  finally { $("refine").disabled = false; }
+    schema = data.schema; $("refineInput").value = "";
+    selected = before >= 0 && before < schema.models.length ? before : (schema.models.length ? 0 : -1);
+    renderAll();
+    setStatus("refineStatus", "refined ✓", "ok");
+  } catch (e) { setStatus("refineStatus", e.message, "err"); }
+  finally { $("refineBtn").disabled = false; }
 };
+$("refineInput").onkeydown = (e) => { if (e.key === "Enter") $("refineBtn").click(); };
 
-$("addModel").onclick = () => { schema.models.push({ name: "", fields: [] }); render(); };
-
-function nextCommands(path) {
-  return "rustio-admin import " + path + "\nrustio-admin plan\nrustio-admin commit";
+/* ---------- new model modal ---------- */
+function openNewModel() { $("newModelName").value = ""; $("newModelOverlay").hidden = false; $("newModelName").focus(); }
+function closeNewModel() { $("newModelOverlay").hidden = true; }
+function createModel() {
+  const nm = $("newModelName").value.trim();
+  schema.models.push({ name: nm, fields: [] });
+  selected = schema.models.length - 1;
+  closeNewModel();
+  renderAll();
+  const nameInput = $("editor").querySelector("input.mname");
+  if (nameInput && !nm) nameInput.focus();
+  showToast("ok", "Model created", (nm || "New model") + " — add its fields.");
 }
+$("newModelBtn").onclick = openNewModel;
+$("newModelCancel").onclick = closeNewModel;
+$("newModelCreate").onclick = createModel;
+$("newModelName").onkeydown = (e) => { if (e.key === "Enter") createModel(); if (e.key === "Escape") closeNewModel(); };
 
-async function doSave(allowDestructive) {
-  const result = $("saveResult");
-  result.innerHTML = "";
-  setStatus($("saveStatus"), "saving…");
-  try {
-    const data = await postJSON("/api/save", { schema, allow_destructive: !!allowDestructive });
-    setStatus($("saveStatus"), "", "");
-    const cmds = nextCommands(data.path);
-    const box = document.createElement("div");
-    box.className = "box ok";
-    box.innerHTML =
-      "<h4>✓ Saved → " + escapeHtml(data.path) + "</h4>" +
-      "<div>Next, apply it deterministically with rustio-admin (rustio-draft never does this for you):</div>" +
-      "<div class='code'>" + escapeHtml(cmds) + "</div>";
-    const copyBtn = document.createElement("button");
-    copyBtn.textContent = "Copy commands"; copyBtn.style.marginTop = "8px";
-    copyBtn.onclick = async () => {
-      try { await navigator.clipboard.writeText(cmds); copyBtn.textContent = "Copied ✓"; }
-      catch (_) { copyBtn.textContent = "copy failed"; }
-    };
-    box.appendChild(copyBtn);
-    result.appendChild(box);
-  } catch (e) {
-    setStatus($("saveStatus"), "", "");
-    const box = document.createElement("div");
-    box.className = "box warn";
-    if (e.status === 409) {
-      box.innerHTML =
-        "<h4>⚠ This save would remove or weaken your saved schema</h4>" +
-        "<div>Blocked by default so you don't lose data by accident:</div>";
-      appendProblems(box, e.problems);
-      const note = document.createElement("div"); note.style.marginTop = "8px";
-      note.textContent =
-        "If you meant to make these changes, use “Save anyway”. Otherwise, edit the schema above first.";
-      box.appendChild(note);
-      const btn = document.createElement("button");
-      btn.textContent = "Save anyway"; btn.style.marginTop = "8px";
-      btn.onclick = () => doSave(true);
-      box.appendChild(btn);
-    } else {
-      box.innerHTML = "<h4>Could not save</h4><div>" + escapeHtml(e.message) + "</div>";
-      appendProblems(box, e.problems);
-    }
-    result.appendChild(box);
-  }
-}
+/* ---------- search ---------- */
+$("search").oninput = (e) => { filter = e.target.value; renderSidebar(); };
 
-function appendProblems(box, problems) {
-  if (!problems || !problems.length) return;
-  const ul = document.createElement("ul"); ul.style.margin = "8px 0 0";
-  problems.forEach((p) => { const li = document.createElement("li"); li.textContent = p; ul.appendChild(li); });
-  box.appendChild(ul);
-}
+/* ---------- JSON modal ---------- */
+function openJson() { $("jsonView").textContent = JSON.stringify(schema, null, 2); $("jsonOverlay").hidden = false; }
+function closeJson() { $("jsonOverlay").hidden = true; }
+$("viewJsonBtn").onclick = openJson;
+$("jsonClose").onclick = closeJson;
+$("jsonCopy").onclick = (e) => copyText(JSON.stringify(schema, null, 2), e.target, "Copy JSON");
+$("jsonDownload").onclick = downloadJson;
+$("downloadBtn").onclick = downloadJson;
 
-$("save").onclick = () => doSave(false);
-
-$("download").onclick = () => {
+function downloadJson() {
   const blob = new Blob([JSON.stringify(schema, null, 2) + "\n"], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "schema.json"; a.click();
   URL.revokeObjectURL(a.href);
-};
+}
 
-$("copy").onclick = async () => {
-  try { await navigator.clipboard.writeText(JSON.stringify(schema, null, 2)); setStatus($("saveStatus"), "copied", "ok"); }
-  catch (_) { setStatus($("saveStatus"), "copy failed", "err"); }
-};
+async function copyText(text, btn, label) {
+  try { await navigator.clipboard.writeText(text); if (btn) { btn.textContent = "Copied ✓"; setTimeout(() => (btn.textContent = label), 1400); } }
+  catch (_) { if (btn) btn.textContent = "copy failed"; }
+}
 
+/* ---------- save ---------- */
+function nextCommands(path) { return "rustio-admin import " + path + "\nrustio-admin plan\nrustio-admin commit"; }
+
+function showToast(kind, title, body, autoMs) {
+  const t = ++toastToken;
+  const el = document.createElement("div");
+  el.className = "toast " + (kind || "");
+  el.innerHTML = '<div class="t-body"><b>' + esc(title) + "</b>" + (body ? esc(body) : "") + "</div>";
+  const x = document.createElement("button"); x.className = "icon-btn"; x.textContent = "✕";
+  x.onclick = () => el.remove(); el.appendChild(x);
+  $("toast").innerHTML = ""; $("toast").appendChild(el);
+  if (autoMs) setTimeout(() => { if (t === toastToken) el.remove(); }, autoMs);
+}
+
+async function doSave(allowDestructive) {
+  try {
+    const data = await postJSON("/api/save", { schema, allow_destructive: !!allowDestructive });
+    lastSavedPath = data.path;
+    $("warnOverlay").hidden = true;
+    renderInspector(); renderWorkflow();
+    showToast("ok", "Saved → " + data.path, "Open the inspector for the rustio-admin commands.", 9000);
+  } catch (e) {
+    if (e.status === 409) { openWarn(e.problems || []); return; }
+    showToast("err", "Could not save", e.message);
+  }
+}
+$("saveBtn").onclick = () => doSave(false);
+
+function openWarn(problems) {
+  $("warnList").innerHTML = problems.map((p) => "<li>" + esc(p) + "</li>").join("") || "<li>(no details)</li>";
+  $("warnOverlay").hidden = false;
+}
+$("warnCancel").onclick = () => { $("warnOverlay").hidden = true; };
+$("warnConfirm").onclick = () => doSave(true);
+
+/* Close overlays on backdrop click / Escape */
+document.querySelectorAll(".overlay").forEach((o) =>
+  (o.onclick = (e) => { if (e.target === o) o.hidden = true; }));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") document.querySelectorAll(".overlay").forEach((o) => (o.hidden = true));
+});
+
+/* ---------- boot ---------- */
 loadTypes();
+renderAll();
 </script>
 </body>
 </html>

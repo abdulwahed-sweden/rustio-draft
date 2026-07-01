@@ -12,8 +12,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::{
     extract::State,
-    http::StatusCode,
-    response::Html,
+    http::{header, StatusCode},
+    response::{Html, IntoResponse},
     routing::{get, post},
     Json, Router,
 };
@@ -102,8 +102,10 @@ struct SaveResp {
     path: String,
 }
 
-async fn index() -> Html<&'static str> {
-    Html(STUDIO_HTML)
+async fn index() -> impl IntoResponse {
+    // `no-store` so a rebuilt studio (the HTML is embedded in the binary) is never
+    // shadowed by a stale cached page in an already-open tab.
+    ([(header::CACHE_CONTROL, "no-store")], Html(STUDIO_HTML))
 }
 
 /// The builder's field-type vocabulary, so the UI's `type` dropdowns match the
