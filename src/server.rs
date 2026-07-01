@@ -130,7 +130,9 @@ async fn refine(
 ) -> Result<Json<SchemaResp>, ApiError> {
     let doc = s
         .client(req.model, req.max_tokens)
-        .refine(&req.schema, &req.instruction)
+        // Studio refine is a preview; the destructive gate lives in the save
+        // handler, so keep the model-preservation guard on here.
+        .refine(&req.schema, &req.instruction, false)
         .await
         .map_err(upstream)?;
     Ok(Json(SchemaResp { schema: doc }))

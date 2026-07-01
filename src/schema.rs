@@ -6,6 +6,8 @@
 //! model's output before we write a file. The validators mirror the builder's
 //! own rules so a document rustio-draft writes will pass `rustio-admin import`.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -107,16 +109,29 @@ pub fn validate(doc: &SchemaDoc) -> Result<(), Vec<String>> {
     if doc.models.is_empty() {
         errors.push("schema has no models".to_string());
     }
+    // Two models (or two fields) with the same name would collide as duplicate
+    // tables/columns in `import`; catch them here so we never write such a schema.
+    let mut seen_models: HashSet<&str> = HashSet::new();
     for m in &doc.models {
         if let Err(e) = validate_model_name(&m.name) {
             errors.push(e);
         }
+        if !seen_models.insert(m.name.as_str()) {
+            errors.push(format!("duplicate model name '{}'", m.name));
+        }
         if m.fields.is_empty() {
             errors.push(format!("model '{}' has no fields", m.name));
         }
+        let mut seen_fields: HashSet<&str> = HashSet::new();
         for f in &m.fields {
             if let Err(e) = validate_field_name(&f.name) {
                 errors.push(format!("{}: {}", m.name, e));
+            }
+            if !seen_fields.insert(f.name.as_str()) {
+                errors.push(format!(
+                    "duplicate field name '{}' in model '{}'",
+                    f.name, m.name
+                ));
             }
             if !FIELD_TYPES.contains(&f.ty.as_str()) {
                 errors.push(format!(
@@ -225,6 +240,46 @@ mod tests {
                 { "name": "Client", "fields": [
                     { "name": "full_name", "type": "text" },
                     { "name": "joined_at", "type": "timestamp" } ] } ] }"#);
+        assert!(validate(&d).is_ok());
+    }
+
+    #[test]
+    fn duplicate_model_name_is_rejected() {
+        // The live-observed failure: the model emitted two `Customer` models.
+        let d = doc(r#"{ "models": [
+                { "name": "Customer", "fields": [ { "name": "a", "type": "text" } ] },
+                { "name": "Customer", "fields": [ { "name": "b", "type": "text" } ] } ] }"#);
+        let errs = validate(&d).unwrap_err();
+        assert!(
+            errs.iter().any(|e| e == "duplicate model name 'Customer'"),
+            "{errs:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_field_name_is_rejected() {
+        let d = doc(r#"{ "models": [
+                { "name": "Client", "fields": [
+                    { "name": "email", "type": "text" },
+                    { "name": "email", "type": "text" } ] } ] }"#);
+        let errs = validate(&d).unwrap_err();
+        assert!(
+            errs.iter()
+                .any(|e| e == "duplicate field name 'email' in model 'Client'"),
+            "{errs:?}"
+        );
+    }
+
+    #[test]
+    fn distinct_model_and_field_names_pass() {
+        // Same field name in *different* models is fine; only within-model
+        // duplicates and duplicate model names are rejected.
+        let d = doc(r#"{ "models": [
+                { "name": "Client", "fields": [
+                    { "name": "name", "type": "text" },
+                    { "name": "email", "type": "text" } ] },
+                { "name": "Staff", "fields": [
+                    { "name": "name", "type": "text" } ] } ] }"#);
         assert!(validate(&d).is_ok());
     }
 

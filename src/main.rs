@@ -191,7 +191,12 @@ async fn refine(
 
     // `refine` retries-until-valid internally; if it still fails, make clear the
     // file was left untouched (finalize never writes an invalid schema anyway).
-    let doc = match client.refine(&current, &instruction).await {
+    // Passing `allow_destructive` disables refine's model-preservation guard so
+    // an intentional model removal reaches the diff gate below.
+    let doc = match client
+        .refine(&current, &instruction, allow_destructive)
+        .await
+    {
         Ok(doc) => doc,
         Err(e) => bail!(
             "{e:#}\n{} was left unchanged — try again or rephrase.",

@@ -94,10 +94,20 @@ impl DraftClient {
     }
 
     /// Apply an edit instruction to an existing schema and return the COMPLETE
-    /// updated document. Like [`generate`](Self::generate), the result is already
-    /// validated — and, additionally, guarded against silently dropping models
-    /// that were in the input (see [`dropped_models`]).
-    pub async fn refine(&self, current: &SchemaDoc, instruction: &str) -> Result<SchemaDoc> {
+    /// updated document. The result is already validated.
+    ///
+    /// When `allow_destructive` is `false`, a model-preservation guard
+    /// ([`dropped_models`]) makes the model retry if it drops a model — this
+    /// recovers additive edits from the model's occasional over-eager
+    /// restructuring. When `allow_destructive` is `true`, that guard is disabled
+    /// so an intentional model removal can go through; the caller's deterministic
+    /// diff gate is then the sole authority on what is destructive.
+    pub async fn refine(
+        &self,
+        current: &SchemaDoc,
+        instruction: &str,
+        allow_destructive: bool,
+    ) -> Result<SchemaDoc> {
         let current_json = serde_json::to_string_pretty(current)
             .context("could not serialize the current schema")?;
         let user = format!(
@@ -107,8 +117,12 @@ impl DraftClient {
              present MUST still be there, plus the change. Do NOT drop any model \
              or field, and never return an empty `models` list."
         );
-        self.complete_valid(user, |doc| dropped_models(current, doc))
-            .await
+        if allow_destructive {
+            self.complete_valid(user, |_| Ok(())).await
+        } else {
+            self.complete_valid(user, |doc| dropped_models(current, doc))
+                .await
+        }
     }
 
     /// Ask the model for a schema and keep it only if it passes
