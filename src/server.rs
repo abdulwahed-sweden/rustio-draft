@@ -210,13 +210,15 @@ fn app(state: Arc<AppState>) -> Router {
 }
 
 /// Run the studio on `127.0.0.1:<port>` until interrupted. Localhost-only by
-/// design — this is a dev tool and the API key lives in this process.
+/// design — this is a dev tool and the API key lives in this process. When
+/// `open` is set, best-effort launches the default browser at the studio URL.
 pub async fn run(
     api_key: String,
     default_model: String,
     default_max_tokens: u32,
     out_path: PathBuf,
     port: u16,
+    open: bool,
 ) -> Result<()> {
     let state = Arc::new(AppState {
         api_key,
@@ -225,19 +227,76 @@ pub async fn run(
         out_path,
     });
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let url = format!("http://{addr}");
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("could not bind {addr}"))?;
-    eprintln!("rustio-draft studio → http://{addr}  (Ctrl-C to stop)");
+    eprintln!("rustio-draft studio → {url}  (Ctrl-C to stop)");
+    // The socket is already listening (bound with a backlog), so a browser opened
+    // now will connect fine even before `serve` starts accepting.
+    if open {
+        open_in_browser(&url);
+    }
     axum::serve(listener, app(state))
         .await
         .context("studio server error")?;
     Ok(())
 }
 
+/// The `(program, args)` that opens `url` in the default browser on `os` (as in
+/// [`std::env::consts::OS`]). Returns `None` on platforms we don't know how to
+/// open. Pure and platform-independent so it can be unit-tested everywhere.
+fn open_browser_command(os: &str, url: &str) -> Option<(&'static str, Vec<String>)> {
+    match os {
+        "macos" => Some(("open", vec![url.to_string()])),
+        "windows" => Some(("cmd", vec!["/C".into(), "start".into(), url.to_string()])),
+        "linux" => Some(("xdg-open", vec![url.to_string()])),
+        _ => None,
+    }
+}
+
+/// Best-effort open of `url` in the default browser. Never fails the caller: on
+/// an unknown platform or a spawn error it just prints a hint and returns, so the
+/// server keeps serving.
+fn open_in_browser(url: &str) {
+    match open_browser_command(std::env::consts::OS, url) {
+        Some((program, args)) => {
+            if let Err(e) = std::process::Command::new(program).args(&args).spawn() {
+                eprintln!("Could not open a browser automatically ({e}). Open {url} manually.");
+            }
+        }
+        None => {
+            eprintln!("Don't know how to open a browser on this platform. Open {url} manually.");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_browser_command_per_platform() {
+        let url = "http://127.0.0.1:8787";
+        assert_eq!(
+            open_browser_command("macos", url),
+            Some(("open", vec![url.to_string()]))
+        );
+        assert_eq!(
+            open_browser_command("linux", url),
+            Some(("xdg-open", vec![url.to_string()]))
+        );
+        assert_eq!(
+            open_browser_command("windows", url),
+            Some((
+                "cmd",
+                vec!["/C".to_string(), "start".to_string(), url.to_string()]
+            ))
+        );
+        // Unknown platforms return None so the caller can print a hint instead.
+        assert_eq!(open_browser_command("freebsd", url), None);
+        assert_eq!(open_browser_command("", url), None);
+    }
 
     fn state_for(out_path: PathBuf) -> Arc<AppState> {
         Arc::new(AppState {

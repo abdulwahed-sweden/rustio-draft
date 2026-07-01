@@ -160,9 +160,13 @@ rustio-draft refine schema.json "add a notes field" --out other.json --force
 
 ```sh
 rustio-draft serve            # → http://127.0.0.1:8787
+rustio-draft serve --open     # same, and open it in your default browser
+# in development: cargo run -- serve --open
 ```
 
 A localhost web UI to draft, edit model/field cards, refine, and download/save.
+Plain `serve` only starts the server and prints the URL; add `--open` to also
+launch your browser (if that fails, it prints a hint and keeps serving).
 
 - **localhost only**,
 - the **API key stays server-side**,

@@ -72,6 +72,9 @@ enum Command {
         /// File the studio's "Save" button writes to.
         #[arg(long, default_value = "schema.json")]
         out: PathBuf,
+        /// Also open the studio in your default browser.
+        #[arg(long)]
+        open: bool,
         #[command(flatten)]
         gen: GenOpts,
     },
@@ -136,8 +139,13 @@ async fn run() -> Result<()> {
             gen,
             apply,
         } => refine(path, instruction, out, allow_destructive, force, gen, apply).await,
-        Command::Serve { port, out, gen } => {
-            rustio_draft::server::run(api_key()?, gen.model, gen.max_tokens, out, port).await
+        Command::Serve {
+            port,
+            out,
+            open,
+            gen,
+        } => {
+            rustio_draft::server::run(api_key()?, gen.model, gen.max_tokens, out, port, open).await
         }
         Command::Doctor { model } => doctor(model).await,
     }
