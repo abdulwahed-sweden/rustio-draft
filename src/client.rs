@@ -56,7 +56,10 @@ Rules you MUST follow:
 - Map dates and date-times to `timestamp`. Map counts/quantities to `integer`.
 - Relations are out of scope for now: instead of a foreign-key field, add a plain \
 `integer` field named `<thing>_id` (e.g. client_id) and note nothing else.
-- Prefer a small, sensible set of fields per model over an exhaustive one.
+- Give EVERY model a complete, useful set of fields — normally 4 to 8 — covering \
+its real attributes plus any `<thing>_id` relations. NEVER emit a model with only \
+one field; if a model seems to need just one, add the other attributes that entity \
+naturally has.
 
 Return only the schema in the required JSON shape — no prose.";
 
