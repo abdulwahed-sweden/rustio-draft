@@ -1,5 +1,7 @@
 # rustio-draft
 
+[![CI](https://github.com/abdulwahed-sweden/rustio-draft/actions/workflows/ci.yml/badge.svg)](https://github.com/abdulwahed-sweden/rustio-draft/actions/workflows/ci.yml)
+
 Setup-time **genesis** for [rustio-admin](https://github.com/abdulwahed-sweden/rustio-admin):
 turn a natural-language brief into a `schema.json`, which `rustio-admin import`
 then applies deterministically.
